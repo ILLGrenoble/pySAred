@@ -1,9 +1,3 @@
-#
-# Install with:
-#   * Windows - pyinstaller --onefile --noconsole -i"C:\icon.ico" --add-data C:\icon.ico;images C:\pySAred_V1.5.1.py
-#   * MacOS - sudo pyinstaller --onefile --windowed pySAred_V1.5.1.py
-#
-
 try:
     from PyQt6 import QtCore, QtGui, QtWidgets
     from PyQt6.QtWidgets import QMainWindow
@@ -13,13 +7,16 @@ except ImportError:
     from PyQt5.QtWidgets import QMainWindow
     qt_ver = 5
 print("Using Qt version %d." % qt_ver)
+
 import pyqtgraph as pg
 import numpy as np
 import pkgutil, platform
 
+
 if qt_ver < 6:
     QtWidgets.QApplication.setAttribute(QtCore.Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
     QtWidgets.QApplication.setAttribute(QtCore.Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+
 
 class Ui_MainWindow(QMainWindow):
 

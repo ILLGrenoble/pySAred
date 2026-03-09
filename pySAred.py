@@ -4,15 +4,12 @@
 #   * MacOS - sudo pyinstaller --onefile --windowed pySAred_V1.5.1.py
 #
 
-try:
-    from PyQt6 import QtCore, QtGui, QtWidgets
-except ImportError:
-    from PyQt5 import QtCore, QtGui, QtWidgets
+import ui
+from ui import QtCore, QtGui, QtWidgets
+import pyqtgraph as pg
 import numpy as np
 import h5py, os, sys, platform
-import pyqtgraph as pg
 from scipy.interpolate import griddata
-import ui
 
 
 class GUI(ui.Ui_MainWindow):
