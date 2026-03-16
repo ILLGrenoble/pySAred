@@ -210,36 +210,31 @@ class GUI(ui.Ui_MainWindow):
             if not file.is_ok():
                 print("Error reading file %s." % self.tableWidget_scans.item(i, 2).text())
                 continue
-            FILE = file.get_h5()
-            # TODO
-            INSTRUMENT = FILE[list(FILE.keys())[0]].get("instrument")
-            MOTOR_DATA = np.array(INSTRUMENT.get('motors').get('data')).T
-            SCALERS_DATA = np.array(INSTRUMENT.get('scalers').get('data')).T
 
-            for index, motor in enumerate(INSTRUMENT.get('motors').get('SPEC_motor_mnemonics')):
-                if "'th'" in str(motor): th_list = MOTOR_DATA[index]
-                elif "'s1hg'" in str(motor): s1hg_list = MOTOR_DATA[index]
-                elif "'s2hg'" in str(motor): s2hg_list = MOTOR_DATA[index]
+            th_list = file.get_th()
+            s1hg_list = file.get_s1hg()
+            s2hg_list = file.get_s2hg()
 
             checkThisFile = 0
 
+            monitor_unpol_list = file.get_mon()
+            monitor_uu_list, monitor_dd_list, monitor_du_list, monitor_ud_list = file.get_mon_pol()
+            time_list = file.get_time()
+
             # check if we have several polarisations
-            for detector in INSTRUMENT.get('detectors'):
-                if str(detector) not in ("psd", "psd_du", "psd_uu", "psd_ud", "psd_dd"): continue
+            for detector in file.get_det_types():
+                if detector not in ("psd", "psd_du", "psd_uu", "psd_ud", "psd_dd"): continue
 
-                for index, scaler in enumerate(INSTRUMENT.get('scalers').get('SPEC_counter_mnemonics')):
-                    if "'mon0'" in str(scaler) and str(detector) == "psd": monitor_list = SCALERS_DATA[index]
-                    elif "'m1'" in str(scaler) and str(detector) == "psd_uu": monitor_list = SCALERS_DATA[index]
-                    elif "'m2'" in str(scaler) and str(detector) == "psd_dd": monitor_list = SCALERS_DATA[index]
-                    elif "'m3'" in str(scaler) and str(detector) == "psd_du": monitor_list = SCALERS_DATA[index]
-                    elif "'m4'" in str(scaler) and str(detector) == "psd_ud": monitor_list = SCALERS_DATA[index]
-                    elif "'sec'" in str(scaler): time_list = SCALERS_DATA[index]
+                if detector == "psd": monitor_list = monitor_unpol_list
+                elif detector == "psd_uu": monitor_list = monitor_uu_list
+                elif detector == "psd_dd": monitor_list = monitor_dd_list
+                elif detector == "psd_du": monitor_list = monitor_du_list
+                elif detector == "psd_ud": monitor_list = monitor_ud_list
 
-                original_roi_coord = np.array(INSTRUMENT.get('scalers').get('roi').get("roi"))
+                original_roi_coord = file.get_roi()
+                scan_intens = file.get_psd()[:, int(original_roi_coord[0]): int(original_roi_coord[1]), :].sum(axis=1)
 
-                scan_intens = INSTRUMENT.get("detectors").get(str(detector)).get('data')[:, int(original_roi_coord[0]): int(original_roi_coord[1]), :].sum(axis=1)
-
-                new_file = open(dir_saveFile + file_name + "_" + str(detector) + " (" + FILE_DB + ")" + ".dat", "w")
+                new_file = open(dir_saveFile + file_name + "_" + detector + " (" + FILE_DB + ")" + ".dat", "w")
 
                 # iterate through th points
                 for index, th in enumerate(th_list):
@@ -333,8 +328,8 @@ class GUI(ui.Ui_MainWindow):
                 new_file.close()
 
                 # check if file is empty - then comment inside
-                if os.stat(dir_saveFile + file_name + "_" + str(detector) + " (" + FILE_DB + ")" + ".dat").st_size == 0:
-                    with open(dir_saveFile + file_name + "_" + str(detector) + " (" + FILE_DB + ")" + ".dat", "w") as empty_file:
+                if os.stat(dir_saveFile + file_name + "_" + detector + " (" + FILE_DB + ")" + ".dat").st_size == 0:
+                    with open(dir_saveFile + file_name + "_" + detector + " (" + FILE_DB + ")" + ".dat", "w") as empty_file:
                         empty_file.write("All points are either zeros or negatives.")
 
         self.statusbar.showMessage(str(self.tableWidget_scans.rowCount()) + " files reduced, " + str(self.listWidget_recheckFilesInSFM.count()) + " file(s) might need extra care.")
@@ -537,30 +532,19 @@ class GUI(ui.Ui_MainWindow):
         if not file.is_ok():
             print("Error reading file %s." % self.SFM_FILE)
             return
-        FILE = file.get_h5()
-        # TODO
         self.th_current = self.comboBox_SFM_detectorImage_incidentAngle.currentText()
 
-        INSTRUMENT = FILE[list(FILE.keys())[0]].get("instrument")
-        MOTOR_DATA = np.array(INSTRUMENT.get('motors').get('data')).T
-        SCALERS_DATA = np.array(INSTRUMENT.get('scalers').get('data')).T
+        self.th_list = file.get_th()
+        self.tth_list = file.get_tth()
+        self.s1hg_list = file.get_s1hg()
+        self.s2hg_list = file.get_s2hg()
+        time_list = file.get_time()
 
-        for index, motor in enumerate(INSTRUMENT.get('motors').get('SPEC_motor_mnemonics')):
-            if "'th'" in str(motor): self.th_list = MOTOR_DATA[index]
-            elif "'tth'" in str(motor): self.tth_list = MOTOR_DATA[index]
-            elif "'s1hg'" in str(motor): self.s1hg_list = MOTOR_DATA[index]
-            elif "'s2hg'" in str(motor): self.s2hg_list = MOTOR_DATA[index]
-
-        for index, scaler in enumerate(INSTRUMENT.get('scalers').get('SPEC_counter_mnemonics')):
-            if "'sec'" in str(scaler):
-                time_list = SCALERS_DATA[index]
-                break
-
-        for i in INSTRUMENT.get('detectors'):
+        for i in file.get_det_types():
             if i not in ("psd", "psd_uu", "psd_dd", "psd_du", "psd_ud"): continue
             scan_psd = "psd" if i == "psd" else "psd_" + self.comboBox_SFM_detectorImage_polarisation.currentText()
 
-        detector_images = INSTRUMENT.get('detectors').get(scan_psd).get('data')
+        detector_images = file.get_psd()
 
         for index, th in enumerate(self.th_list):
             # check th
@@ -706,11 +690,6 @@ class GUI(ui.Ui_MainWindow):
         if not file.is_ok():
             print("Error reading file %s." % self.SFM_FILE)
             return
-        FILE = file.get_h5()
-        # TODO
-        INSTRUMENT = FILE[list(FILE.keys())[0]].get("instrument")
-        PONOS = FILE[list(FILE.keys())[0]].get("ponos")
-        SCALERS_DATA = np.array(INSTRUMENT.get('scalers').get('data')).T
 
         roi_coord_Y = [int(self.lineEdit_SFM_detectorImage_roiY_top.text()), int(self.lineEdit_SFM_detectorImage_roiY_bottom.text())]
         roi_coord_X = [int(self.lineEdit_SFM_detectorImage_roiX_left.text()), int(self.lineEdit_SFM_detectorImage_roiX_right.text())]
@@ -720,13 +699,9 @@ class GUI(ui.Ui_MainWindow):
         if not roi_coord_Y == self.roi_oldCoord_Y: self.SFMFileAlreadyAnalized = ""
         self.roi_oldCoord_Y = roi_coord_Y
 
-        for index, scaler in enumerate(INSTRUMENT.get('scalers').get('SPEC_counter_mnemonics')):
-            if "'mon0'" in str(scaler): monitor_list = SCALERS_DATA[index]
-            elif "'m1'" in str(scaler): monitor_uu_list = SCALERS_DATA[index]
-            elif "'m2'" in str(scaler): monitor_dd_list = SCALERS_DATA[index]
-            elif "'m3'" in str(scaler): monitor_du_list = SCALERS_DATA[index]
-            elif "'m4'" in str(scaler): monitor_ud_list = SCALERS_DATA[index]
-            elif "'sec'" in str(scaler): time_list = SCALERS_DATA[index]
+        monitor_list = file.get_mon()
+        monitor_uu_list, monitor_dd_list, monitor_du_list, monitor_ud_list = file.get_mon_pol()
+        time_list = file.get_time()
 
         if not self.SFM_FILE == self.SFMFileAlreadyAnalized:
             self.SFM_psdUU = self.SFM_psdDD = self.SFM_psdUD = self.SFM_psdDU = []
@@ -734,18 +709,18 @@ class GUI(ui.Ui_MainWindow):
         # get or create 2-dimentional intensity array for each polarisation
 
         sampleCurvature_recalc = True if self.sampleCurvature_last == [i.text() for i in [self.lineEdit_instrument_sampleCurvature, self.lineEdit_SFM_detectorImage_roiX_left, self.lineEdit_SFM_detectorImage_roiX_right, self.lineEdit_SFM_detectorImage_roiY_bottom, self.lineEdit_SFM_detectorImage_roiY_top]] else False
-        for scan in PONOS.get('data'):
-            # avoid reSUM of intensity after each action
-            # reSUM if we change SFM file or Sample curvature
-            if self.SFM_FILE == self.SFMFileAlreadyAnalized and sampleCurvature_recalc: continue
 
-            if "pnr" in list(FILE[list(FILE.keys())[0]]):
-                if str(scan) == "data_du": self.SFM_psdDU = INSTRUMENT.get("detectors").get("psd_du").get('data')[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
-                elif str(scan) == "data_uu": self.SFM_psdUU = INSTRUMENT.get("detectors").get("psd_uu").get('data')[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
-                elif str(scan) == "data_ud": self.SFM_psdUD = INSTRUMENT.get("detectors").get("psd_ud").get('data')[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
-                elif str(scan) == "data_dd": self.SFM_psdDD = INSTRUMENT.get("detectors").get("psd_dd").get('data')[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
-
-            else: self.SFM_psdUU = INSTRUMENT.get("detectors").get("psd").get('data')[:, int(roi_coord_Y[0]) : int(roi_coord_Y[1]), :].sum(axis=1)
+        # avoid reSUM of intensity after each action
+        # reSUM if we change SFM file or Sample curvature
+        if not (self.SFM_FILE == self.SFMFileAlreadyAnalized and sampleCurvature_recalc):
+            if file.is_pol():
+                self.SFM_psdUU, self.SFM_psdDD, self.SFM_psdDU, self.SFM_psdUD = file.get_det_pol()
+                self.SFM_psdUU = self.SFM_psdUU[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
+                self.SFM_psdDD = self.SFM_psdDD[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
+                self.SFM_psdDU = self.SFM_psdDU[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
+                self.SFM_psdUD = self.SFM_psdUD[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
+            else:
+                self.SFM_psdUU = file.get_psd()[:, int(roi_coord_Y[0]) : int(roi_coord_Y[1]), :].sum(axis=1)
 
         if not self.SFM_FILE == self.SFMFileAlreadyAnalized: self.SFMFileAlreadyAnalized, self.sampleCurvature_last = self.SFM_FILE, "0"
 
