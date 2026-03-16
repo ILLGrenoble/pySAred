@@ -8,7 +8,8 @@ import ui
 from ui import QtCore, QtGui, QtWidgets
 import pyqtgraph as pg
 import numpy as np
-import h5py, os, sys, platform
+import loader
+import os, sys, platform
 from scipy.interpolate import griddata
 
 
@@ -205,133 +206,136 @@ class GUI(ui.Ui_MainWindow):
             # find full name DB file if there are several of them
             FILE_DB = self.tableWidget_scans.item(i, 1).text() if self.checkBox_reductions_normalizeByDB.isChecked() else ""
 
-            with h5py.File(self.tableWidget_scans.item(i, 2).text(), 'r') as FILE:
+            file = loader.H5Loader(self.tableWidget_scans.item(i, 2).text())
+            if not file.is_ok():
+                print("Error reading file %s." % self.tableWidget_scans.item(i, 2).text())
+                continue
+            FILE = file.get_h5()
+            # TODO
+            INSTRUMENT = FILE[list(FILE.keys())[0]].get("instrument")
+            MOTOR_DATA = np.array(INSTRUMENT.get('motors').get('data')).T
+            SCALERS_DATA = np.array(INSTRUMENT.get('scalers').get('data')).T
 
-                INSTRUMENT = FILE[list(FILE.keys())[0]].get("instrument")
-                MOTOR_DATA = np.array(INSTRUMENT.get('motors').get('data')).T
-                SCALERS_DATA = np.array(INSTRUMENT.get('scalers').get('data')).T
+            for index, motor in enumerate(INSTRUMENT.get('motors').get('SPEC_motor_mnemonics')):
+                if "'th'" in str(motor): th_list = MOTOR_DATA[index]
+                elif "'s1hg'" in str(motor): s1hg_list = MOTOR_DATA[index]
+                elif "'s2hg'" in str(motor): s2hg_list = MOTOR_DATA[index]
 
-                for index, motor in enumerate(INSTRUMENT.get('motors').get('SPEC_motor_mnemonics')):
-                    if "'th'" in str(motor): th_list = MOTOR_DATA[index]
-                    elif "'s1hg'" in str(motor): s1hg_list = MOTOR_DATA[index]
-                    elif "'s2hg'" in str(motor): s2hg_list = MOTOR_DATA[index]
+            checkThisFile = 0
 
-                checkThisFile = 0
+            # check if we have several polarisations
+            for detector in INSTRUMENT.get('detectors'):
+                if str(detector) not in ("psd", "psd_du", "psd_uu", "psd_ud", "psd_dd"): continue
 
-                # check if we have several polarisations
-                for detector in INSTRUMENT.get('detectors'):
-                    if str(detector) not in ("psd", "psd_du", "psd_uu", "psd_ud", "psd_dd"): continue
+                for index, scaler in enumerate(INSTRUMENT.get('scalers').get('SPEC_counter_mnemonics')):
+                    if "'mon0'" in str(scaler) and str(detector) == "psd": monitor_list = SCALERS_DATA[index]
+                    elif "'m1'" in str(scaler) and str(detector) == "psd_uu": monitor_list = SCALERS_DATA[index]
+                    elif "'m2'" in str(scaler) and str(detector) == "psd_dd": monitor_list = SCALERS_DATA[index]
+                    elif "'m3'" in str(scaler) and str(detector) == "psd_du": monitor_list = SCALERS_DATA[index]
+                    elif "'m4'" in str(scaler) and str(detector) == "psd_ud": monitor_list = SCALERS_DATA[index]
+                    elif "'sec'" in str(scaler): time_list = SCALERS_DATA[index]
 
-                    for index, scaler in enumerate(INSTRUMENT.get('scalers').get('SPEC_counter_mnemonics')):
-                        if "'mon0'" in str(scaler) and str(detector) == "psd": monitor_list = SCALERS_DATA[index]
-                        elif "'m1'" in str(scaler) and str(detector) == "psd_uu": monitor_list = SCALERS_DATA[index]
-                        elif "'m2'" in str(scaler) and str(detector) == "psd_dd": monitor_list = SCALERS_DATA[index]
-                        elif "'m3'" in str(scaler) and str(detector) == "psd_du": monitor_list = SCALERS_DATA[index]
-                        elif "'m4'" in str(scaler) and str(detector) == "psd_ud": monitor_list = SCALERS_DATA[index]
-                        elif "'sec'" in str(scaler): time_list = SCALERS_DATA[index]
+                original_roi_coord = np.array(INSTRUMENT.get('scalers').get('roi').get("roi"))
 
-                    original_roi_coord = np.array(INSTRUMENT.get('scalers').get('roi').get("roi"))
+                scan_intens = INSTRUMENT.get("detectors").get(str(detector)).get('data')[:, int(original_roi_coord[0]): int(original_roi_coord[1]), :].sum(axis=1)
 
-                    scan_intens = INSTRUMENT.get("detectors").get(str(detector)).get('data')[:, int(original_roi_coord[0]): int(original_roi_coord[1]), :].sum(axis=1)
+                new_file = open(dir_saveFile + file_name + "_" + str(detector) + " (" + FILE_DB + ")" + ".dat", "w")
 
-                    new_file = open(dir_saveFile + file_name + "_" + str(detector) + " (" + FILE_DB + ")" + ".dat", "w")
+                # iterate through th points
+                for index, th in enumerate(th_list):
+                    th = th - float(self.lineEdit_instrument_offsetFull.text())  # th offset
 
-                    # iterate through th points
-                    for index, th in enumerate(th_list):
+                    # analize integrated intensity for ROI
+                    Intens = scan_intens[index] if len(scan_intens.shape) == 1 else sum(scan_intens[index][int(original_roi_coord[2]): int(original_roi_coord[3])])
 
-                        th = th - float(self.lineEdit_instrument_offsetFull.text())  # th offset
+                    if Intens == 0 and self.checkBox_export_removeZeros.isChecked(): continue
 
-                        # analize integrated intensity for ROI
-                        Intens = scan_intens[index] if len(scan_intens.shape) == 1 else sum(scan_intens[index][int(original_roi_coord[2]): int(original_roi_coord[3])])
+                    IntensErr = 1 if Intens == 0 else np.sqrt(Intens)
 
-                        if Intens == 0 and self.checkBox_export_removeZeros.isChecked(): continue
+                    # read motors
+                    Qz, s1hg, s2hg = (4 * np.pi / float(self.lineEdit_instrument_wavelength.text())) * np.sin(np.radians(th)), s1hg_list[index], s2hg_list[index]
+                    monitor = monitor_list[index] if self.comboBox_reductions_divideByMonitorOrTime.currentText() == "monitor" else time_list[index]
 
-                        IntensErr = 1 if Intens == 0 else np.sqrt(Intens)
+                    # check if we are not in a middle of ROI in Qz approx 0.02)
+                    if round(Qz, 3) > 0.015 and round(Qz, 3) < 0.03 and checkThisFile == 0:
+                        scanData_0_015 = scan_intens[index][int(original_roi_coord[2]): int(original_roi_coord[3])]
 
-                        # read motors
-                        Qz, s1hg, s2hg = (4 * np.pi / float(self.lineEdit_instrument_wavelength.text())) * np.sin(np.radians(th)), s1hg_list[index], s2hg_list[index]
-                        monitor = monitor_list[index] if self.comboBox_reductions_divideByMonitorOrTime.currentText() == "monitor" else time_list[index]
+                        if not max(scanData_0_015) == max(scanData_0_015[round((len(scanData_0_015) / 3)):-round((len(scanData_0_015) / 3))]):
+                            self.listWidget_recheckFilesInSFM.addItem(file_name)
+                            checkThisFile = 1
 
-                        # check if we are not in a middle of ROI in Qz approx 0.02)
-                        if round(Qz, 3) > 0.015 and round(Qz, 3) < 0.03 and checkThisFile == 0:
-                            scanData_0_015 = scan_intens[index][int(original_roi_coord[2]): int(original_roi_coord[3])]
+                    coeff = self.f_overilluminationCorrCoeff(s1hg, s2hg, round(th, 4))
+                    FWHM_proj,  overillCorr = coeff[1], coeff[0] if self.checkBox_reductions_overilluminationCorr.isChecked() else 1
 
-                            if not max(scanData_0_015) == max(scanData_0_015[round((len(scanData_0_015) / 3)):-round((len(scanData_0_015) / 3))]):
+                    # calculate resolution in Gunnar's Sared way or other (also using overillumination correction)
+                    if self.checkBox_export_resolutionLikeSared.isChecked():
+                        Resolution = np.sqrt(
+                            ((2 * np.pi / float(self.lineEdit_instrument_wavelength.text())) ** 2) * ((np.cos(np.radians(th))) ** 2) * (0.68 ** 2) * ((s1hg ** 2) + (s2hg ** 2)) / (
+                                        (float(self.lineEdit_instrument_distanceS1ToSample.text()) - float(self.lineEdit_instrument_distanceS2ToSample.text())) ** 2) + (
+                                        (float(self.lineEdit_instrument_wavelengthResolution.text()) ** 2) * (Qz ** 2)))
+                    else:
+                        d_alpha = np.arctan((s1hg + [s2hg if FWHM_proj == s2hg else FWHM_proj][0]) / (
+                                (float(self.lineEdit_instrument_distanceS1ToSample.text()) - float(self.lineEdit_instrument_distanceS2ToSample.text())) * 2))
+                        if self.comboBox_export_angle.currentText() == "Qz":
+                            k_0 = 2 * np.pi / float(self.lineEdit_instrument_wavelength.text())
+                            Resolution = np.sqrt((k_0 ** 2) * (
+                                        (((np.cos(np.radians(th))) ** 2) * d_alpha ** 2) + ((float(self.lineEdit_instrument_wavelengthResolution.text()) ** 2) * ((np.sin(np.radians(th))) ** 2))))
+                        else: Resolution = d_alpha if self.comboBox_export_angle.currentText() == "Radians" else np.degrees(d_alpha)
+
+                    # Save resolution in sigma rather than in FWHM units
+                    Resolution = Resolution / (2 * np.sqrt(2 * np.log(2)))
+
+                    # minus background, divide by monitor, overillumination correct + calculate errors
+                    if self.checkBox_reductions_subtractBkg.isChecked() and Qz > bkg_skip:
+                        Intens_bkg = sum(scan_intens[index][int(original_roi_coord[2]) - 2 * (int(original_roi_coord[3]) - int(original_roi_coord[2])): int(original_roi_coord[2]) - (int(original_roi_coord[3]) - int(original_roi_coord[2]))])
+
+                        if Intens_bkg > 0: IntensErr, Intens = np.sqrt(Intens + Intens_bkg), Intens - Intens_bkg
+
+                    if self.checkBox_reductions_divideByMonitorOrTime.isChecked():
+                        if self.comboBox_reductions_divideByMonitorOrTime.currentText() == "monitor":
+                            monitor, IntensErr = monitor_list[index], IntensErr / monitor if Intens == 0 else (Intens / monitor) * np.sqrt((IntensErr / Intens) ** 2 + (1 / monitor))
+                        elif self.comboBox_reductions_divideByMonitorOrTime.currentText() == "time":
+                            monitor, IntensErr = time_list[index], IntensErr / monitor
+
+                        Intens = Intens / monitor
+
+                    if self.checkBox_reductions_overilluminationCorr.isChecked(): IntensErr, Intens = IntensErr / overillCorr, Intens / overillCorr
+
+                    if self.checkBox_reductions_normalizeByDB.isChecked():
+                        try:
+                            DB_intens = float(self.DB_INFO[str(FILE_DB) + ";" + str(s1hg) + ";" + str(s2hg)].split(";")[0]) * DB_attenFactor
+                            DB_err = overillCorr * float(self.DB_INFO[str(FILE_DB) + ";" + str(s1hg) + ";" + str(s2hg)].split(";")[1]) * self.DB_attenFactor
+
+                            IntensErr = IntensErr + DB_err if Intens == 0 else (Intens / DB_intens) * np.sqrt((DB_err / DB_intens) ** 2 + (IntensErr / Intens) ** 2)
+                            Intens = Intens / DB_intens
+                        except:
+                            if checkThisFile == 0:
                                 self.listWidget_recheckFilesInSFM.addItem(file_name)
                                 checkThisFile = 1
 
-                        coeff = self.f_overilluminationCorrCoeff(s1hg, s2hg, round(th, 4))
-                        FWHM_proj,  overillCorr = coeff[1], coeff[0] if self.checkBox_reductions_overilluminationCorr.isChecked() else 1
+                        self.checkBox_reductions_scaleFactor.setChecked(False)
 
-                        # calculate resolution in Gunnar's Sared way or other (also using overillumination correction)
-                        if self.checkBox_export_resolutionLikeSared.isChecked():
-                            Resolution = np.sqrt(
-                                ((2 * np.pi / float(self.lineEdit_instrument_wavelength.text())) ** 2) * ((np.cos(np.radians(th))) ** 2) * (0.68 ** 2) * ((s1hg ** 2) + (s2hg ** 2)) / (
-                                            (float(self.lineEdit_instrument_distanceS1ToSample.text()) - float(self.lineEdit_instrument_distanceS2ToSample.text())) ** 2) + (
-                                            (float(self.lineEdit_instrument_wavelengthResolution.text()) ** 2) * (Qz ** 2)))
-                        else:
-                            d_alpha = np.arctan((s1hg + [s2hg if FWHM_proj == s2hg else FWHM_proj][0]) / (
-                                    (float(self.lineEdit_instrument_distanceS1ToSample.text()) - float(self.lineEdit_instrument_distanceS2ToSample.text())) * 2))
-                            if self.comboBox_export_angle.currentText() == "Qz":
-                                k_0 = 2 * np.pi / float(self.lineEdit_instrument_wavelength.text())
-                                Resolution = np.sqrt((k_0 ** 2) * (
-                                            (((np.cos(np.radians(th))) ** 2) * d_alpha ** 2) + ((float(self.lineEdit_instrument_wavelengthResolution.text()) ** 2) * ((np.sin(np.radians(th))) ** 2))))
-                            else: Resolution = d_alpha if self.comboBox_export_angle.currentText() == "Radians" else np.degrees(d_alpha)
+                    if self.checkBox_reductions_scaleFactor.isChecked(): IntensErr, Intens = IntensErr / self.scaleFactor, Intens / self.scaleFactor
 
-                        # Save resolution in sigma rather than in FWHM units
-                        Resolution = Resolution / (2 * np.sqrt(2 * np.log(2)))
+                    # check desired output angle and do conversion if needed
+                    if self.comboBox_export_angle.currentText() == "Qz": angle = round(Qz, 10)
+                    elif self.comboBox_export_angle.currentText() == "Degrees": angle = round(np.degrees(np.arcsin(Qz * float(self.lineEdit_instrument_wavelength.text()) / (4 * np.pi))), 10)
+                    elif self.comboBox_export_angle.currentText() == "Radians": angle = round(np.arcsin(Qz * float(self.lineEdit_instrument_wavelength.text()) / (4 * np.pi)), 10)
 
-                        # minus background, divide by monitor, overillumination correct + calculate errors
-                        if self.checkBox_reductions_subtractBkg.isChecked() and Qz > bkg_skip:
-                            Intens_bkg = sum(scan_intens[index][int(original_roi_coord[2]) - 2 * (int(original_roi_coord[3]) - int(original_roi_coord[2])): int(original_roi_coord[2]) - (int(original_roi_coord[3]) - int(original_roi_coord[2]))])
+                    # skip the points with zero intensity
+                    if (Intens == 0 and self.checkBox_export_removeZeros.isChecked()): continue
 
-                            if Intens_bkg > 0: IntensErr, Intens = np.sqrt(Intens + Intens_bkg), Intens - Intens_bkg
+                    new_file.write(str(angle) + ' ' + str(Intens) + ' ' + str(IntensErr) + ' ')
+                    if self.checkBox_export_addResolutionColumn.isChecked(): new_file.write(str(Resolution))
+                    new_file.write('\n')
 
-                        if self.checkBox_reductions_divideByMonitorOrTime.isChecked():
-                            if self.comboBox_reductions_divideByMonitorOrTime.currentText() == "monitor":
-                                monitor, IntensErr = monitor_list[index], IntensErr / monitor if Intens == 0 else (Intens / monitor) * np.sqrt((IntensErr / Intens) ** 2 + (1 / monitor))
-                            elif self.comboBox_reductions_divideByMonitorOrTime.currentText() == "time":
-                                monitor, IntensErr = time_list[index], IntensErr / monitor
+                # close files
+                new_file.close()
 
-                            Intens = Intens / monitor
-
-                        if self.checkBox_reductions_overilluminationCorr.isChecked(): IntensErr, Intens = IntensErr / overillCorr, Intens / overillCorr
-
-                        if self.checkBox_reductions_normalizeByDB.isChecked():
-                            try:
-                                DB_intens = float(self.DB_INFO[str(FILE_DB) + ";" + str(s1hg) + ";" + str(s2hg)].split(";")[0]) * DB_attenFactor
-                                DB_err = overillCorr * float(self.DB_INFO[str(FILE_DB) + ";" + str(s1hg) + ";" + str(s2hg)].split(";")[1]) * self.DB_attenFactor
-
-                                IntensErr = IntensErr + DB_err if Intens == 0 else (Intens / DB_intens) * np.sqrt((DB_err / DB_intens) ** 2 + (IntensErr / Intens) ** 2)
-                                Intens = Intens / DB_intens
-                            except:
-                                if checkThisFile == 0:
-                                    self.listWidget_recheckFilesInSFM.addItem(file_name)
-                                    checkThisFile = 1
-
-                            self.checkBox_reductions_scaleFactor.setChecked(False)
-
-                        if self.checkBox_reductions_scaleFactor.isChecked(): IntensErr, Intens = IntensErr / self.scaleFactor, Intens / self.scaleFactor
-
-                        # check desired output angle and do conversion if needed
-                        if self.comboBox_export_angle.currentText() == "Qz": angle = round(Qz, 10)
-                        elif self.comboBox_export_angle.currentText() == "Degrees": angle = round(np.degrees(np.arcsin(Qz * float(self.lineEdit_instrument_wavelength.text()) / (4 * np.pi))), 10)
-                        elif self.comboBox_export_angle.currentText() == "Radians": angle = round(np.arcsin(Qz * float(self.lineEdit_instrument_wavelength.text()) / (4 * np.pi)), 10)
-
-                        # skip the points with zero intensity
-                        if (Intens == 0 and self.checkBox_export_removeZeros.isChecked()): continue
-
-                        new_file.write(str(angle) + ' ' + str(Intens) + ' ' + str(IntensErr) + ' ')
-                        if self.checkBox_export_addResolutionColumn.isChecked(): new_file.write(str(Resolution))
-                        new_file.write('\n')
-
-                    # close files
-                    new_file.close()
-
-                    # check if file is empty - then comment inside
-                    if os.stat(dir_saveFile + file_name + "_" + str(detector) + " (" + FILE_DB + ")" + ".dat").st_size == 0:
-                        with open(dir_saveFile + file_name + "_" + str(detector) + " (" + FILE_DB + ")" + ".dat", "w") as empty_file:
-                            empty_file.write("All points are either zeros or negatives.")
+                # check if file is empty - then comment inside
+                if os.stat(dir_saveFile + file_name + "_" + str(detector) + " (" + FILE_DB + ")" + ".dat").st_size == 0:
+                    with open(dir_saveFile + file_name + "_" + str(detector) + " (" + FILE_DB + ")" + ".dat", "w") as empty_file:
+                        empty_file.write("All points are either zeros or negatives.")
 
         self.statusbar.showMessage(str(self.tableWidget_scans.rowCount()) + " files reduced, " + str(self.listWidget_recheckFilesInSFM.count()) + " file(s) might need extra care.")
 
@@ -424,33 +428,26 @@ class GUI(ui.Ui_MainWindow):
         self.DB_INFO = {}
 
         for i in range(0, self.tableWidget_DB.rowCount()):
-            with h5py.File(self.tableWidget_DB.item(i,1).text(), 'r') as FILE_DB:
-                INSTRUMENT = FILE_DB[list(FILE_DB.keys())[0]].get("instrument")
-                MOTOR_DATA = np.array(INSTRUMENT.get('motors').get('data')).T
-                SCALERS_DATA = np.array(INSTRUMENT.get('scalers').get('data')).T
+            file = loader.H5Loader(self.tableWidget_DB.item(i,1).text())
+            if not file.is_ok():
+                print("Error reading file %s." % self.tableWidget_DB.item(i,1).text())
+                continue
 
-                for index, motor in enumerate(INSTRUMENT.get('motors').get('SPEC_motor_mnemonics')):
-                    if "'th'" in str(motor): th_list = MOTOR_DATA[index]
-                    elif "'s1hg'" in str(motor): s1hg_list = MOTOR_DATA[index]
-                    elif "'s2hg'" in str(motor): s2hg_list = MOTOR_DATA[index]
+            th_list = file.get_th()
+            s1hg_list = file.get_s1hg()
+            s2hg_list = file.get_s2hg()
 
-                for index, scaler in enumerate(INSTRUMENT.get('scalers').get('SPEC_counter_mnemonics')):
-                    if "'mon0'" in str(scaler): monitor_list = SCALERS_DATA[index]
-                    elif "'roi'" in str(scaler): intens_list = SCALERS_DATA[index]
-                    elif "'sec'" in str(scaler): time_list = SCALERS_DATA[index]
+            if self.checkBox_reductions_divideByMonitorOrTime.isChecked(): monitor = monitor_list if self.comboBox_reductions_divideByMonitorOrTime.currentText() == "monitor" else time_list
+            else: monitor = np.ones_like(intens_list)
 
-                if self.checkBox_reductions_divideByMonitorOrTime.isChecked(): monitor = monitor_list if self.comboBox_reductions_divideByMonitorOrTime.currentText() == "monitor" else time_list
-                else: monitor = np.ones_like(intens_list)
+            for j in range(0, len(th_list)):
+                DB_intens = float(intens_list[j]) / float(monitor[j])
+                if self.checkBox_reductions_divideByMonitorOrTime.isChecked() and self.comboBox_reductions_divideByMonitorOrTime.currentText() == "monitor":
+                    DB_err = DB_intens * np.sqrt(1/float(intens_list[j]) + 1/float(monitor[j]))
+                else: DB_err = np.sqrt(float(intens_list[j])) / float(monitor[j])
 
-                for j in range(0, len(th_list)):
-                    DB_intens = float(intens_list[j]) / float(monitor[j])
-                    if self.checkBox_reductions_divideByMonitorOrTime.isChecked() and self.comboBox_reductions_divideByMonitorOrTime.currentText() == "monitor":
-                        DB_err = DB_intens * np.sqrt(1/float(intens_list[j]) + 1/float(monitor[j]))
-                    else: DB_err = np.sqrt(float(intens_list[j])) / float(monitor[j])
-
-                    scan_slitsMonitor = self.tableWidget_DB.item(i, 0).text()[:5] + ";" + str(s1hg_list[j]) + ";" + str(s2hg_list[j])
-
-                    self.DB_INFO[scan_slitsMonitor] = str(DB_intens) + ";" + str(DB_err)
+                scan_slitsMonitor = self.tableWidget_DB.item(i, 0).text()[:5] + ";" + str(s1hg_list[j]) + ";" + str(s2hg_list[j])
+                self.DB_INFO[scan_slitsMonitor] = str(DB_intens) + ";" + str(DB_err)
 
         if self.tableWidget_DB.rowCount() == 0: return
         else: self.f_DB_assign()
@@ -493,37 +490,40 @@ class GUI(ui.Ui_MainWindow):
         for i in range(0, self.tableWidget_scans.rowCount()):
             self.SFM_FILE = self.tableWidget_scans.item(i, 2).text() if self.tableWidget_scans.item(i, 0).text() == self.comboBox_SFM_scan.currentText() else self.SFM_FILE
 
-        with h5py.File(self.SFM_FILE, 'r') as FILE:
-            SCAN = FILE[list(FILE.keys())[0]]
+        file = loader.H5Loader(self.SFM_FILE)
+        if not file.is_ok():
+            print("Error reading file %s." % self.SFM_FILE)
+            return
 
-            if not self.roiLocked == [] and self.checkBox_SFM_detectorImage_lockRoi.isChecked(): original_roi_coord = np.array(self.roiLocked[0])
-            else: original_roi_coord = np.array(SCAN.get("instrument").get('scalers').get('roi').get("roi"))
+        SCAN = file.get_scan()
+        if not self.roiLocked == [] and self.checkBox_SFM_detectorImage_lockRoi.isChecked(): original_roi_coord = np.array(self.roiLocked[0])
+        else: original_roi_coord = np.array(SCAN.get("instrument").get('scalers').get('roi').get("roi"))
 
-            roi_width = int(str(original_roi_coord[3])[:-2]) - int(str(original_roi_coord[2])[:-2])
+        roi_width = int(str(original_roi_coord[3])[:-2]) - int(str(original_roi_coord[2])[:-2])
 
-            # ROI
-            self.lineEdit_SFM_detectorImage_roiX_left.setText(str(original_roi_coord[2])[:-2])
-            self.lineEdit_SFM_detectorImage_roiX_right.setText(str(original_roi_coord[3])[:-2])
-            self.lineEdit_SFM_detectorImage_roiY_bottom.setText(str(original_roi_coord[1])[:-2])
-            self.lineEdit_SFM_detectorImage_roiY_top.setText(str(original_roi_coord[0])[:-2])
+        # ROI
+        self.lineEdit_SFM_detectorImage_roiX_left.setText(str(original_roi_coord[2])[:-2])
+        self.lineEdit_SFM_detectorImage_roiX_right.setText(str(original_roi_coord[3])[:-2])
+        self.lineEdit_SFM_detectorImage_roiY_bottom.setText(str(original_roi_coord[1])[:-2])
+        self.lineEdit_SFM_detectorImage_roiY_top.setText(str(original_roi_coord[0])[:-2])
 
-            # BKG ROI
-            if not self.roiLocked == [] and self.checkBox_SFM_detectorImage_lockRoi.isChecked(): self.lineEdit_SFM_detectorImage_roi_bkgX_right.setText(str(self.roiLocked[1]))
-            else: self.lineEdit_SFM_detectorImage_roi_bkgX_right.setText(str(int(self.lineEdit_SFM_detectorImage_roiX_left.text()) - roi_width))
-            self.lineEdit_SFM_detectorImage_roi_bkgX_left.setText(str(int(self.lineEdit_SFM_detectorImage_roi_bkgX_right.text()) - roi_width))
+        # BKG ROI
+        if not self.roiLocked == [] and self.checkBox_SFM_detectorImage_lockRoi.isChecked(): self.lineEdit_SFM_detectorImage_roi_bkgX_right.setText(str(self.roiLocked[1]))
+        else: self.lineEdit_SFM_detectorImage_roi_bkgX_right.setText(str(int(self.lineEdit_SFM_detectorImage_roiX_left.text()) - roi_width))
+        self.lineEdit_SFM_detectorImage_roi_bkgX_left.setText(str(int(self.lineEdit_SFM_detectorImage_roi_bkgX_right.text()) - roi_width))
 
-            for index, th in enumerate(SCAN.get("instrument").get('motors').get('th').get("value")):
-                self.comboBox_SFM_detectorImage_incidentAngle.addItem(str(round(th, 3)))
+        for index, th in enumerate(SCAN.get("instrument").get('motors').get('th').get("value")):
+            self.comboBox_SFM_detectorImage_incidentAngle.addItem(str(round(th, 3)))
 
-            if len(SCAN.get("ponos").get('data')) == 1:
-                for item in (self.comboBox_SFM_detectorImage_polarisation, self.comboBox_SFM_2Dmap_polarisation): item.addItem("uu")
-            for polarisation in SCAN.get("ponos").get('data'):
-                if polarisation not in ("data_du", "data_uu", "data_dd", "data_ud"): continue
-                if np.any(np.array(SCAN.get("ponos").get('data').get(polarisation))):
-                    for item in (self.comboBox_SFM_detectorImage_polarisation, self.comboBox_SFM_2Dmap_polarisation): item.addItem(str(polarisation)[-2:])
+        if len(SCAN.get("ponos").get('data')) == 1:
+            for item in (self.comboBox_SFM_detectorImage_polarisation, self.comboBox_SFM_2Dmap_polarisation): item.addItem("uu")
+        for polarisation in SCAN.get("ponos").get('data'):
+            if polarisation not in ("data_du", "data_uu", "data_dd", "data_ud"): continue
+            if np.any(np.array(SCAN.get("ponos").get('data').get(polarisation))):
+                for item in (self.comboBox_SFM_detectorImage_polarisation, self.comboBox_SFM_2Dmap_polarisation): item.addItem(str(polarisation)[-2:])
 
-            self.comboBox_SFM_detectorImage_polarisation.setCurrentIndex(0)
-            self.comboBox_SFM_2Dmap_polarisation.setCurrentIndex(0)
+        self.comboBox_SFM_detectorImage_polarisation.setCurrentIndex(0)
+        self.comboBox_SFM_2Dmap_polarisation.setCurrentIndex(0)
 
     def f_SFM_detectorImage_draw(self):
 
@@ -532,89 +532,94 @@ class GUI(ui.Ui_MainWindow):
         for item in (self.graphicsView_SFM_detectorImage, self.graphicsView_SFM_detectorImage_roi): item.clear()
 
         if self.SFM_FILE == "": return
-        with h5py.File(self.SFM_FILE, 'r') as FILE:
 
-            self.th_current = self.comboBox_SFM_detectorImage_incidentAngle.currentText()
+        file = loader.H5Loader(self.SFM_FILE)
+        if not file.is_ok():
+            print("Error reading file %s." % self.SFM_FILE)
+            return
+        FILE = file.get_h5()
+        # TODO
+        self.th_current = self.comboBox_SFM_detectorImage_incidentAngle.currentText()
 
-            INSTRUMENT = FILE[list(FILE.keys())[0]].get("instrument")
-            MOTOR_DATA = np.array(INSTRUMENT.get('motors').get('data')).T
-            SCALERS_DATA = np.array(INSTRUMENT.get('scalers').get('data')).T
+        INSTRUMENT = FILE[list(FILE.keys())[0]].get("instrument")
+        MOTOR_DATA = np.array(INSTRUMENT.get('motors').get('data')).T
+        SCALERS_DATA = np.array(INSTRUMENT.get('scalers').get('data')).T
 
-            for index, motor in enumerate(INSTRUMENT.get('motors').get('SPEC_motor_mnemonics')):
-                if "'th'" in str(motor): self.th_list = MOTOR_DATA[index]
-                elif "'tth'" in str(motor): self.tth_list = MOTOR_DATA[index]
-                elif "'s1hg'" in str(motor): self.s1hg_list = MOTOR_DATA[index]
-                elif "'s2hg'" in str(motor): self.s2hg_list = MOTOR_DATA[index]
+        for index, motor in enumerate(INSTRUMENT.get('motors').get('SPEC_motor_mnemonics')):
+            if "'th'" in str(motor): self.th_list = MOTOR_DATA[index]
+            elif "'tth'" in str(motor): self.tth_list = MOTOR_DATA[index]
+            elif "'s1hg'" in str(motor): self.s1hg_list = MOTOR_DATA[index]
+            elif "'s2hg'" in str(motor): self.s2hg_list = MOTOR_DATA[index]
 
-            for index, scaler in enumerate(INSTRUMENT.get('scalers').get('SPEC_counter_mnemonics')):
-                if "'sec'" in str(scaler):
-                    time_list = SCALERS_DATA[index]
-                    break
+        for index, scaler in enumerate(INSTRUMENT.get('scalers').get('SPEC_counter_mnemonics')):
+            if "'sec'" in str(scaler):
+                time_list = SCALERS_DATA[index]
+                break
 
-            for i in INSTRUMENT.get('detectors'):
-                if i not in ("psd", "psd_uu", "psd_dd", "psd_du", "psd_ud"): continue
-                scan_psd = "psd" if i == "psd" else "psd_" + self.comboBox_SFM_detectorImage_polarisation.currentText()
+        for i in INSTRUMENT.get('detectors'):
+            if i not in ("psd", "psd_uu", "psd_dd", "psd_du", "psd_ud"): continue
+            scan_psd = "psd" if i == "psd" else "psd_" + self.comboBox_SFM_detectorImage_polarisation.currentText()
 
-            detector_images = INSTRUMENT.get('detectors').get(scan_psd).get('data')
+        detector_images = INSTRUMENT.get('detectors').get(scan_psd).get('data')
 
-            for index, th in enumerate(self.th_list):
-                # check th
-                if self.th_current == str(round(th, 3)):
-                    self.lineEdit_SFM_detectorImage_slits_s1hg.setText(str(self.s1hg_list[index]))
-                    self.lineEdit_SFM_detectorImage_slits_s2hg.setText(str(self.s2hg_list[index]))
-                    self.lineEdit_SFM_detectorImage_time.setText(str(time_list[index]))
+        for index, th in enumerate(self.th_list):
+            # check th
+            if self.th_current == str(round(th, 3)):
+                self.lineEdit_SFM_detectorImage_slits_s1hg.setText(str(self.s1hg_list[index]))
+                self.lineEdit_SFM_detectorImage_slits_s2hg.setText(str(self.s2hg_list[index]))
+                self.lineEdit_SFM_detectorImage_time.setText(str(time_list[index]))
 
-                    # seems to be a bug in numpy arrays imported from hdf5 files. Problem is solved after I subtract ZEROs array with the same dimentions.
-                    detector_image = np.around(detector_images[index], decimals=0).astype(int)
-                    detector_image = np.subtract(detector_image, np.zeros((detector_image.shape[0], detector_image.shape[1])))
-                    # integrate detector image with respect to ROI Y coordinates
-                    detector_image_int = detector_image[int(self.lineEdit_SFM_detectorImage_roiY_top.text()): int(self.lineEdit_SFM_detectorImage_roiY_bottom.text()), :].sum(axis=0).astype(int)
+                # seems to be a bug in numpy arrays imported from hdf5 files. Problem is solved after I subtract ZEROs array with the same dimentions.
+                detector_image = np.around(detector_images[index], decimals=0).astype(int)
+                detector_image = np.subtract(detector_image, np.zeros((detector_image.shape[0], detector_image.shape[1])))
+                # integrate detector image with respect to ROI Y coordinates
+                detector_image_int = detector_image[int(self.lineEdit_SFM_detectorImage_roiY_top.text()): int(self.lineEdit_SFM_detectorImage_roiY_bottom.text()), :].sum(axis=0).astype(int)
 
-                    self.graphicsView_SFM_detectorImage.setImage(detector_image, axes={'x':1, 'y':0}, levels=(0,0.1))
-                    self.graphicsView_SFM_detectorImage_roi.addItem(pg.PlotCurveItem(y = detector_image_int, pen=pg.mkPen(color=(0, 0, 0), width=2), brush=pg.mkBrush(color=(255, 0, 0), width=3)))
+                self.graphicsView_SFM_detectorImage.setImage(detector_image, axes={'x':1, 'y':0}, levels=(0,0.1))
+                self.graphicsView_SFM_detectorImage_roi.addItem(pg.PlotCurveItem(y = detector_image_int, pen=pg.mkPen(color=(0, 0, 0), width=2), brush=pg.mkBrush(color=(255, 0, 0), width=3)))
 
-                    if self.comboBox_SFM_detectorImage_colorScheme.currentText() == "White / Black":
-                        self.color_det_image = np.array([[0, 0, 0, 255], [255, 255, 255, 255], [255, 255, 255, 255]], dtype=np.ubyte)
-                    elif self.comboBox_SFM_detectorImage_colorScheme.currentText() == "Green / Blue":
-                        self.color_det_image = np.array([[0, 0, 255, 255], [255, 0, 0, 255], [0, 255, 0, 255]], dtype=np.ubyte)
-                    pos = np.array([0.0, 0.1, 1.0])
+                if self.comboBox_SFM_detectorImage_colorScheme.currentText() == "White / Black":
+                    self.color_det_image = np.array([[0, 0, 0, 255], [255, 255, 255, 255], [255, 255, 255, 255]], dtype=np.ubyte)
+                elif self.comboBox_SFM_detectorImage_colorScheme.currentText() == "Green / Blue":
+                    self.color_det_image = np.array([[0, 0, 255, 255], [255, 0, 0, 255], [0, 255, 0, 255]], dtype=np.ubyte)
+                pos = np.array([0.0, 0.1, 1.0])
 
-                    self.graphicsView_SFM_detectorImage.setColorMap(pg.ColorMap(pos, self.color_det_image))
+                self.graphicsView_SFM_detectorImage.setColorMap(pg.ColorMap(pos, self.color_det_image))
 
-                    # add ROI rectangular
-                    spots_ROI_detInt = []
-                    if self.roi_draw: self.graphicsView_SFM_detectorImage.removeItem(self.roi_draw)
-                    if self.roi_draw_bkg: self.graphicsView_SFM_detectorImage.removeItem(self.roi_draw_bkg)
+                # add ROI rectangular
+                spots_ROI_detInt = []
+                if self.roi_draw: self.graphicsView_SFM_detectorImage.removeItem(self.roi_draw)
+                if self.roi_draw_bkg: self.graphicsView_SFM_detectorImage.removeItem(self.roi_draw_bkg)
 
-                    # add ROI rectangular
-                    spots_ROI_det_view = {'x': (int(self.lineEdit_SFM_detectorImage_roiX_left.text()), int(self.lineEdit_SFM_detectorImage_roiX_right.text()), int(self.lineEdit_SFM_detectorImage_roiX_right.text()), int(self.lineEdit_SFM_detectorImage_roiX_left.text()), int(self.lineEdit_SFM_detectorImage_roiX_left.text())),
-                                 'y': (int(self.lineEdit_SFM_detectorImage_roiY_top.text()), int(self.lineEdit_SFM_detectorImage_roiY_top.text()), int(self.lineEdit_SFM_detectorImage_roiY_bottom.text()), int(self.lineEdit_SFM_detectorImage_roiY_bottom.text()), int(self.lineEdit_SFM_detectorImage_roiY_top.text()))}
+                # add ROI rectangular
+                spots_ROI_det_view = {'x': (int(self.lineEdit_SFM_detectorImage_roiX_left.text()), int(self.lineEdit_SFM_detectorImage_roiX_right.text()), int(self.lineEdit_SFM_detectorImage_roiX_right.text()), int(self.lineEdit_SFM_detectorImage_roiX_left.text()), int(self.lineEdit_SFM_detectorImage_roiX_left.text())),
+                                'y': (int(self.lineEdit_SFM_detectorImage_roiY_top.text()), int(self.lineEdit_SFM_detectorImage_roiY_top.text()), int(self.lineEdit_SFM_detectorImage_roiY_bottom.text()), int(self.lineEdit_SFM_detectorImage_roiY_bottom.text()), int(self.lineEdit_SFM_detectorImage_roiY_top.text()))}
 
-                    self.roi_draw = pg.PlotDataItem(spots_ROI_det_view, pen=pg.mkPen(255, 255, 255), connect="all")
-                    self.graphicsView_SFM_detectorImage.addItem(self.roi_draw)
+                self.roi_draw = pg.PlotDataItem(spots_ROI_det_view, pen=pg.mkPen(255, 255, 255), connect="all")
+                self.graphicsView_SFM_detectorImage.addItem(self.roi_draw)
 
-                    # add BKG ROI rectangular
-                    if self.checkBox_reductions_subtractBkg.isChecked():
-                        spots_ROI_det_view = {'x': (int(self.lineEdit_SFM_detectorImage_roi_bkgX_left.text()), int(self.lineEdit_SFM_detectorImage_roi_bkgX_right.text()),
-                                                    int(self.lineEdit_SFM_detectorImage_roi_bkgX_right.text()), int(self.lineEdit_SFM_detectorImage_roi_bkgX_left.text()),
-                                                    int(self.lineEdit_SFM_detectorImage_roi_bkgX_left.text())),
-                                              'y': (int(self.lineEdit_SFM_detectorImage_roiY_top.text()), int(self.lineEdit_SFM_detectorImage_roiY_top.text()),
-                                                    int(self.lineEdit_SFM_detectorImage_roiY_bottom.text()), int(self.lineEdit_SFM_detectorImage_roiY_bottom.text()),
-                                                    int(self.lineEdit_SFM_detectorImage_roiY_top.text()))}
+                # add BKG ROI rectangular
+                if self.checkBox_reductions_subtractBkg.isChecked():
+                    spots_ROI_det_view = {'x': (int(self.lineEdit_SFM_detectorImage_roi_bkgX_left.text()), int(self.lineEdit_SFM_detectorImage_roi_bkgX_right.text()),
+                                                int(self.lineEdit_SFM_detectorImage_roi_bkgX_right.text()), int(self.lineEdit_SFM_detectorImage_roi_bkgX_left.text()),
+                                                int(self.lineEdit_SFM_detectorImage_roi_bkgX_left.text())),
+                                            'y': (int(self.lineEdit_SFM_detectorImage_roiY_top.text()), int(self.lineEdit_SFM_detectorImage_roiY_top.text()),
+                                                int(self.lineEdit_SFM_detectorImage_roiY_bottom.text()), int(self.lineEdit_SFM_detectorImage_roiY_bottom.text()),
+                                                int(self.lineEdit_SFM_detectorImage_roiY_top.text()))}
 
-                        self.roi_draw_bkg = pg.PlotDataItem(spots_ROI_det_view, pen=pg.mkPen(color=(255, 255, 255), style=QtCore.Qt.DashLine), connect="all")
-                        self.graphicsView_SFM_detectorImage.addItem(self.roi_draw_bkg)
+                    self.roi_draw_bkg = pg.PlotDataItem(spots_ROI_det_view, pen=pg.mkPen(color=(255, 255, 255), style=QtCore.Qt.DashLine), connect="all")
+                    self.graphicsView_SFM_detectorImage.addItem(self.roi_draw_bkg)
 
-                    if self.roi_draw_int: self.graphicsView_SFM_detectorImage_roi.removeItem(self.roi_draw_int)
+                if self.roi_draw_int: self.graphicsView_SFM_detectorImage_roi.removeItem(self.roi_draw_int)
 
-                    for i in range(0, detector_image_int.max()):
-                        spots_ROI_detInt.append({'x': int(self.lineEdit_SFM_detectorImage_roiX_left.text()), 'y': i})
-                        spots_ROI_detInt.append({'x': int(self.lineEdit_SFM_detectorImage_roiX_right.text()), 'y': i})
+                for i in range(0, detector_image_int.max()):
+                    spots_ROI_detInt.append({'x': int(self.lineEdit_SFM_detectorImage_roiX_left.text()), 'y': i})
+                    spots_ROI_detInt.append({'x': int(self.lineEdit_SFM_detectorImage_roiX_right.text()), 'y': i})
 
-                    self.roi_draw_int = pg.ScatterPlotItem(spots=spots_ROI_detInt, size=1, pen=pg.mkPen(255, 0, 0))
-                    self.graphicsView_SFM_detectorImage_roi.addItem(self.roi_draw_int)
+                self.roi_draw_int = pg.ScatterPlotItem(spots=spots_ROI_detInt, size=1, pen=pg.mkPen(255, 0, 0))
+                self.graphicsView_SFM_detectorImage_roi.addItem(self.roi_draw_int)
 
-                    break
+                break
 
         # Show "integrated roi" part
         if self.sender().objectName() == "pushButton_SFM_detectorImage_showIntegratedRoi":
@@ -697,229 +702,234 @@ class GUI(ui.Ui_MainWindow):
         self.SFM_DB_FILE = self.comboBox_SFM_DB.currentText()
 
         # Open analized file
-        with h5py.File(self.SFM_FILE, 'r') as FILE:
-            INSTRUMENT = FILE[list(FILE.keys())[0]].get("instrument")
-            PONOS = FILE[list(FILE.keys())[0]].get("ponos")
-            SCALERS_DATA = np.array(INSTRUMENT.get('scalers').get('data')).T
+        file = loader.H5Loader(self.SFM_FILE)
+        if not file.is_ok():
+            print("Error reading file %s." % self.SFM_FILE)
+            return
+        FILE = file.get_h5()
+        # TODO
+        INSTRUMENT = FILE[list(FILE.keys())[0]].get("instrument")
+        PONOS = FILE[list(FILE.keys())[0]].get("ponos")
+        SCALERS_DATA = np.array(INSTRUMENT.get('scalers').get('data')).T
 
-            roi_coord_Y = [int(self.lineEdit_SFM_detectorImage_roiY_top.text()), int(self.lineEdit_SFM_detectorImage_roiY_bottom.text())]
-            roi_coord_X = [int(self.lineEdit_SFM_detectorImage_roiX_left.text()), int(self.lineEdit_SFM_detectorImage_roiX_right.text())]
-            roi_coord_X_BKG = [int(self.lineEdit_SFM_detectorImage_roi_bkgX_left.text()), int(self.lineEdit_SFM_detectorImage_roi_bkgX_right.text())]
+        roi_coord_Y = [int(self.lineEdit_SFM_detectorImage_roiY_top.text()), int(self.lineEdit_SFM_detectorImage_roiY_bottom.text())]
+        roi_coord_X = [int(self.lineEdit_SFM_detectorImage_roiX_left.text()), int(self.lineEdit_SFM_detectorImage_roiX_right.text())]
+        roi_coord_X_BKG = [int(self.lineEdit_SFM_detectorImage_roi_bkgX_left.text()), int(self.lineEdit_SFM_detectorImage_roi_bkgX_right.text())]
 
-            # recalculate if ROI was changed
-            if not roi_coord_Y == self.roi_oldCoord_Y: self.SFMFileAlreadyAnalized = ""
-            self.roi_oldCoord_Y = roi_coord_Y
+        # recalculate if ROI was changed
+        if not roi_coord_Y == self.roi_oldCoord_Y: self.SFMFileAlreadyAnalized = ""
+        self.roi_oldCoord_Y = roi_coord_Y
 
-            for index, scaler in enumerate(INSTRUMENT.get('scalers').get('SPEC_counter_mnemonics')):
-                if "'mon0'" in str(scaler): monitor_list = SCALERS_DATA[index]
-                elif "'m1'" in str(scaler): monitor_uu_list = SCALERS_DATA[index]
-                elif "'m2'" in str(scaler): monitor_dd_list = SCALERS_DATA[index]
-                elif "'m3'" in str(scaler): monitor_du_list = SCALERS_DATA[index]
-                elif "'m4'" in str(scaler): monitor_ud_list = SCALERS_DATA[index]
-                elif "'sec'" in str(scaler): time_list = SCALERS_DATA[index]
+        for index, scaler in enumerate(INSTRUMENT.get('scalers').get('SPEC_counter_mnemonics')):
+            if "'mon0'" in str(scaler): monitor_list = SCALERS_DATA[index]
+            elif "'m1'" in str(scaler): monitor_uu_list = SCALERS_DATA[index]
+            elif "'m2'" in str(scaler): monitor_dd_list = SCALERS_DATA[index]
+            elif "'m3'" in str(scaler): monitor_du_list = SCALERS_DATA[index]
+            elif "'m4'" in str(scaler): monitor_ud_list = SCALERS_DATA[index]
+            elif "'sec'" in str(scaler): time_list = SCALERS_DATA[index]
 
-            if not self.SFM_FILE == self.SFMFileAlreadyAnalized:
-                self.SFM_psdUU = self.SFM_psdDD = self.SFM_psdUD = self.SFM_psdDU = []
+        if not self.SFM_FILE == self.SFMFileAlreadyAnalized:
+            self.SFM_psdUU = self.SFM_psdDD = self.SFM_psdUD = self.SFM_psdDU = []
 
-            # get or create 2-dimentional intensity array for each polarisation
+        # get or create 2-dimentional intensity array for each polarisation
 
-            sampleCurvature_recalc = True if self.sampleCurvature_last == [i.text() for i in [self.lineEdit_instrument_sampleCurvature, self.lineEdit_SFM_detectorImage_roiX_left, self.lineEdit_SFM_detectorImage_roiX_right, self.lineEdit_SFM_detectorImage_roiY_bottom, self.lineEdit_SFM_detectorImage_roiY_top]] else False
-            for scan in PONOS.get('data'):
-                # avoid reSUM of intensity after each action
-                # reSUM if we change SFM file or Sample curvature
-                if self.SFM_FILE == self.SFMFileAlreadyAnalized and sampleCurvature_recalc: continue
+        sampleCurvature_recalc = True if self.sampleCurvature_last == [i.text() for i in [self.lineEdit_instrument_sampleCurvature, self.lineEdit_SFM_detectorImage_roiX_left, self.lineEdit_SFM_detectorImage_roiX_right, self.lineEdit_SFM_detectorImage_roiY_bottom, self.lineEdit_SFM_detectorImage_roiY_top]] else False
+        for scan in PONOS.get('data'):
+            # avoid reSUM of intensity after each action
+            # reSUM if we change SFM file or Sample curvature
+            if self.SFM_FILE == self.SFMFileAlreadyAnalized and sampleCurvature_recalc: continue
 
-                if "pnr" in list(FILE[list(FILE.keys())[0]]):
-                    if str(scan) == "data_du": self.SFM_psdDU = INSTRUMENT.get("detectors").get("psd_du").get('data')[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
-                    elif str(scan) == "data_uu": self.SFM_psdUU = INSTRUMENT.get("detectors").get("psd_uu").get('data')[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
-                    elif str(scan) == "data_ud": self.SFM_psdUD = INSTRUMENT.get("detectors").get("psd_ud").get('data')[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
-                    elif str(scan) == "data_dd": self.SFM_psdDD = INSTRUMENT.get("detectors").get("psd_dd").get('data')[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
+            if "pnr" in list(FILE[list(FILE.keys())[0]]):
+                if str(scan) == "data_du": self.SFM_psdDU = INSTRUMENT.get("detectors").get("psd_du").get('data')[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
+                elif str(scan) == "data_uu": self.SFM_psdUU = INSTRUMENT.get("detectors").get("psd_uu").get('data')[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
+                elif str(scan) == "data_ud": self.SFM_psdUD = INSTRUMENT.get("detectors").get("psd_ud").get('data')[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
+                elif str(scan) == "data_dd": self.SFM_psdDD = INSTRUMENT.get("detectors").get("psd_dd").get('data')[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
 
-                else: self.SFM_psdUU = INSTRUMENT.get("detectors").get("psd").get('data')[:, int(roi_coord_Y[0]) : int(roi_coord_Y[1]), :].sum(axis=1)
+            else: self.SFM_psdUU = INSTRUMENT.get("detectors").get("psd").get('data')[:, int(roi_coord_Y[0]) : int(roi_coord_Y[1]), :].sum(axis=1)
 
-            if not self.SFM_FILE == self.SFMFileAlreadyAnalized: self.SFMFileAlreadyAnalized, self.sampleCurvature_last = self.SFM_FILE, "0"
+        if not self.SFM_FILE == self.SFMFileAlreadyAnalized: self.SFMFileAlreadyAnalized, self.sampleCurvature_last = self.SFM_FILE, "0"
 
-            # Sample curvature correction - we need to adjust integrated 2D map when we first make it
-            # perform correction if it was changed on the form
-            if not sampleCurvature_recalc:
+        # Sample curvature correction - we need to adjust integrated 2D map when we first make it
+        # perform correction if it was changed on the form
+        if not sampleCurvature_recalc:
 
-                for index, SFM_curvatureCorrection in enumerate([self.SFM_psdUU, self.SFM_psdDU, self.SFM_psdUD, self.SFM_psdDD]):
+            for index, SFM_curvatureCorrection in enumerate([self.SFM_psdUU, self.SFM_psdDU, self.SFM_psdUD, self.SFM_psdDD]):
 
-                    if self.lineEdit_instrument_sampleCurvature.text() == "0": continue
-                    if SFM_curvatureCorrection == []: continue
+                if self.lineEdit_instrument_sampleCurvature.text() == "0": continue
+                if SFM_curvatureCorrection == []: continue
 
-                    SFM_curvatureCorrection_slice = SFM_curvatureCorrection[:, roi_coord_X[0]:roi_coord_X[1]]
+                SFM_curvatureCorrection_slice = SFM_curvatureCorrection[:, roi_coord_X[0]:roi_coord_X[1]]
 
-                    detImage_recalc = [[],[],[]] # x, y, value
+                detImage_recalc = [[],[],[]] # x, y, value
 
-                    for x, col in enumerate(np.flipud(np.rot90(SFM_curvatureCorrection_slice))):
-                        displacement = x * np.tan(float(self.lineEdit_instrument_sampleCurvature.text()))
-                        for y, value in enumerate(col):
-                            detImage_recalc[0].append(x)
-                            detImage_recalc[1].append(y + displacement)
-                            detImage_recalc[2].append(value)
-                    np.rot90(SFM_curvatureCorrection_slice, -1)
+                for x, col in enumerate(np.flipud(np.rot90(SFM_curvatureCorrection_slice))):
+                    displacement = x * np.tan(float(self.lineEdit_instrument_sampleCurvature.text()))
+                    for y, value in enumerate(col):
+                        detImage_recalc[0].append(x)
+                        detImage_recalc[1].append(y + displacement)
+                        detImage_recalc[2].append(value)
+                np.rot90(SFM_curvatureCorrection_slice, -1)
 
-                    # find middle of roi to define zero level
-                    roi_coord_X_middle = (SFM_curvatureCorrection_slice.shape[1]) / 2
-                    zero_level = int(round(roi_coord_X_middle * np.tan(float(self.lineEdit_instrument_sampleCurvature.text())) - min(detImage_recalc[1])))
+                # find middle of roi to define zero level
+                roi_coord_X_middle = (SFM_curvatureCorrection_slice.shape[1]) / 2
+                zero_level = int(round(roi_coord_X_middle * np.tan(float(self.lineEdit_instrument_sampleCurvature.text())) - min(detImage_recalc[1])))
 
-                    grid_x, grid_y = np.mgrid[0:SFM_curvatureCorrection_slice.shape[1]:1, min(detImage_recalc[1]):max(detImage_recalc[1]):1]
-                    SFM_curvatureCorrection_slice = np.flipud(np.rot90(griddata((detImage_recalc[0], detImage_recalc[1]), detImage_recalc[2], (grid_x, grid_y), method="linear", fill_value=float(0))))[zero_level:zero_level+SFM_curvatureCorrection_slice.shape[0], :]
+                grid_x, grid_y = np.mgrid[0:SFM_curvatureCorrection_slice.shape[1]:1, min(detImage_recalc[1]):max(detImage_recalc[1]):1]
+                SFM_curvatureCorrection_slice = np.flipud(np.rot90(griddata((detImage_recalc[0], detImage_recalc[1]), detImage_recalc[2], (grid_x, grid_y), method="linear", fill_value=float(0))))[zero_level:zero_level+SFM_curvatureCorrection_slice.shape[0], :]
 
-                    SFM_curvatureCorrection[:, roi_coord_X[0]:roi_coord_X[1]] = SFM_curvatureCorrection_slice
+                SFM_curvatureCorrection[:, roi_coord_X[0]:roi_coord_X[1]] = SFM_curvatureCorrection_slice
 
-                    if index == 0: self.SFM_psdUU = SFM_curvatureCorrection
-                    elif index == 1: self.SFM_psdDU = SFM_curvatureCorrection
-                    elif index == 2: self.SFM_psdUD = SFM_curvatureCorrection
-                    elif index == 3: self.SFM_psdDD = SFM_curvatureCorrection
+                if index == 0: self.SFM_psdUU = SFM_curvatureCorrection
+                elif index == 1: self.SFM_psdDU = SFM_curvatureCorrection
+                elif index == 2: self.SFM_psdUD = SFM_curvatureCorrection
+                elif index == 3: self.SFM_psdDD = SFM_curvatureCorrection
 
-                self.sampleCurvature_last = [i.text() for i in [self.lineEdit_instrument_sampleCurvature, self.lineEdit_SFM_detectorImage_roiX_left, self.lineEdit_SFM_detectorImage_roiX_right, self.lineEdit_SFM_detectorImage_roiY_bottom, self.lineEdit_SFM_detectorImage_roiY_top]]
+            self.sampleCurvature_last = [i.text() for i in [self.lineEdit_instrument_sampleCurvature, self.lineEdit_SFM_detectorImage_roiX_left, self.lineEdit_SFM_detectorImage_roiX_right, self.lineEdit_SFM_detectorImage_roiY_bottom, self.lineEdit_SFM_detectorImage_roiY_top]]
 
-            for colorIndex, SFM_scanIntens in enumerate([self.SFM_psdUU, self.SFM_psdDU, self.SFM_psdUD, self.SFM_psdDD]):
+        for colorIndex, SFM_scanIntens in enumerate([self.SFM_psdUU, self.SFM_psdDU, self.SFM_psdUD, self.SFM_psdDD]):
 
-                SFM_export_Qz_onePol, SFM_export_I_onePol, SFM_export_dI_onePol, SFM_export_resolution_onePol = [], [], [], []
+            SFM_export_Qz_onePol, SFM_export_I_onePol, SFM_export_dI_onePol, SFM_export_resolution_onePol = [], [], [], []
 
-                plot_I, plot_angle, plot_dI_err_bottom, plot_dI_err_top, plot_overillumination = [], [], [], [], []
+            plot_I, plot_angle, plot_dI_err_bottom, plot_dI_err_top, plot_overillumination = [], [], [], [], []
 
-                if isinstance(SFM_scanIntens, list) and SFM_scanIntens == []: continue
+            if isinstance(SFM_scanIntens, list) and SFM_scanIntens == []: continue
 
-                if colorIndex == 0: color, monitorData = [0, 0, 0], [monitor_list if np.count_nonzero(monitor_uu_list) == 0 else monitor_uu_list][0] # ++
-                elif colorIndex == 1: color, monitorData = [0, 0, 255], monitor_du_list # -+
-                elif colorIndex == 2: color, monitorData = [0, 255, 0], monitor_ud_list # +-
-                elif colorIndex == 3: color, monitorData = [255, 0, 0], monitor_dd_list # --
+            if colorIndex == 0: color, monitorData = [0, 0, 0], [monitor_list if np.count_nonzero(monitor_uu_list) == 0 else monitor_uu_list][0] # ++
+            elif colorIndex == 1: color, monitorData = [0, 0, 255], monitor_du_list # -+
+            elif colorIndex == 2: color, monitorData = [0, 255, 0], monitor_ud_list # +-
+            elif colorIndex == 3: color, monitorData = [255, 0, 0], monitor_dd_list # --
 
-                for index, th in enumerate(self.th_list):
-                    th = th - float(self.lineEdit_instrument_offsetFull.text()) # th offset
+            for index, th in enumerate(self.th_list):
+                th = th - float(self.lineEdit_instrument_offsetFull.text()) # th offset
 
-                    # read motors
-                    Qz = (4 * np.pi / float(self.lineEdit_instrument_wavelength.text())) * np.sin(np.radians(th))
-                    s1hg, s2hg, monitor = self.s1hg_list[index], self.s2hg_list[index], monitorData[index]
+                # read motors
+                Qz = (4 * np.pi / float(self.lineEdit_instrument_wavelength.text())) * np.sin(np.radians(th))
+                s1hg, s2hg, monitor = self.s1hg_list[index], self.s2hg_list[index], monitorData[index]
 
-                    if not self.checkBox_reductions_overilluminationCorr.isChecked():
-                        overillCorr, FWHM_proj = 1, s2hg
-                        overillCorr_plot = self.f_overilluminationCorrCoeff(s1hg, s2hg, round(th, 4))[0]
-                    else:
-                        overillCorr, FWHM_proj = self.f_overilluminationCorrCoeff(s1hg, s2hg, round(th, 4))
-                        overillCorr_plot = overillCorr
+                if not self.checkBox_reductions_overilluminationCorr.isChecked():
+                    overillCorr, FWHM_proj = 1, s2hg
+                    overillCorr_plot = self.f_overilluminationCorrCoeff(s1hg, s2hg, round(th, 4))[0]
+                else:
+                    overillCorr, FWHM_proj = self.f_overilluminationCorrCoeff(s1hg, s2hg, round(th, 4))
+                    overillCorr_plot = overillCorr
 
-                    # calculate resolution in Gunnar's Sared way or other (also using overillumination correction)
-                    if self.checkBox_export_resolutionLikeSared.isChecked():
-                        Resolution = np.sqrt(((2 * np.pi / float(self.lineEdit_instrument_wavelength.text())) ** 2) * ((np.cos(np.radians(th))) ** 2) * (0.68 ** 2) * ((s1hg ** 2) + (s2hg ** 2)) / ((float( self.lineEdit_instrument_distanceS1ToSample.text()) - float( self.lineEdit_instrument_distanceS2ToSample.text())) ** 2) + ((float(self.lineEdit_instrument_wavelengthResolution.text()) ** 2) * (Qz ** 2)))
-                    else:
-                        d_alpha = np.arctan((s1hg + [s2hg if FWHM_proj == s2hg else FWHM_proj][0]) / (
-                                (float(self.lineEdit_instrument_distanceS1ToSample.text()) - float(self.lineEdit_instrument_distanceS2ToSample.text())) * 2))
-                        if self.comboBox_export_angle.currentText() == "Qz":
-                            k_0 = 2 * np.pi / float(self.lineEdit_instrument_wavelength.text())
-                            Resolution = np.sqrt((k_0 ** 2) * ( (((np.cos(np.radians(th))) ** 2) * d_alpha ** 2) + ((float(self.lineEdit_instrument_wavelengthResolution.text()) ** 2) * ((np.sin(np.radians(th))) ** 2))))
-                        else: Resolution = d_alpha if self.comboBox_export_angle.currentText() == "Radians" else np.degrees(d_alpha)
+                # calculate resolution in Gunnar's Sared way or other (also using overillumination correction)
+                if self.checkBox_export_resolutionLikeSared.isChecked():
+                    Resolution = np.sqrt(((2 * np.pi / float(self.lineEdit_instrument_wavelength.text())) ** 2) * ((np.cos(np.radians(th))) ** 2) * (0.68 ** 2) * ((s1hg ** 2) + (s2hg ** 2)) / ((float( self.lineEdit_instrument_distanceS1ToSample.text()) - float( self.lineEdit_instrument_distanceS2ToSample.text())) ** 2) + ((float(self.lineEdit_instrument_wavelengthResolution.text()) ** 2) * (Qz ** 2)))
+                else:
+                    d_alpha = np.arctan((s1hg + [s2hg if FWHM_proj == s2hg else FWHM_proj][0]) / (
+                            (float(self.lineEdit_instrument_distanceS1ToSample.text()) - float(self.lineEdit_instrument_distanceS2ToSample.text())) * 2))
+                    if self.comboBox_export_angle.currentText() == "Qz":
+                        k_0 = 2 * np.pi / float(self.lineEdit_instrument_wavelength.text())
+                        Resolution = np.sqrt((k_0 ** 2) * ( (((np.cos(np.radians(th))) ** 2) * d_alpha ** 2) + ((float(self.lineEdit_instrument_wavelengthResolution.text()) ** 2) * ((np.sin(np.radians(th))) ** 2))))
+                    else: Resolution = d_alpha if self.comboBox_export_angle.currentText() == "Radians" else np.degrees(d_alpha)
 
-                    # Save resolution in sigma rather than in FWHM units
-                    Resolution = Resolution / (2 * np.sqrt(2 * np.log(2)))
+                # Save resolution in sigma rather than in FWHM units
+                Resolution = Resolution / (2 * np.sqrt(2 * np.log(2)))
 
-                    # analize integrated intensity for ROI
-                    Intens = sum(SFM_scanIntens[index][roi_coord_X[0]: roi_coord_X[1]])
-                    Intens_bkg = sum(SFM_scanIntens[index][roi_coord_X_BKG[0] : roi_coord_X_BKG[1]])
+                # analize integrated intensity for ROI
+                Intens = sum(SFM_scanIntens[index][roi_coord_X[0]: roi_coord_X[1]])
+                Intens_bkg = sum(SFM_scanIntens[index][roi_coord_X_BKG[0] : roi_coord_X_BKG[1]])
 
-                    # minus background, divide by monitor, overillumination correct + calculate errors
-                    if not Intens > 0: Intens = 0
-                    # I want to avoid error==0 if intens==0
-                    if Intens == 0: IntensErr = 1
-                    else: IntensErr = np.sqrt(Intens)
+                # minus background, divide by monitor, overillumination correct + calculate errors
+                if not Intens > 0: Intens = 0
+                # I want to avoid error==0 if intens==0
+                if Intens == 0: IntensErr = 1
+                else: IntensErr = np.sqrt(Intens)
 
-                    if self.checkBox_reductions_subtractBkg.isChecked() and Qz > bkg_skip:
-                        if Intens_bkg > 0:
-                            IntensErr = np.sqrt(Intens + Intens_bkg)
-                            Intens = Intens - Intens_bkg
+                if self.checkBox_reductions_subtractBkg.isChecked() and Qz > bkg_skip:
+                    if Intens_bkg > 0:
+                        IntensErr = np.sqrt(Intens + Intens_bkg)
+                        Intens = Intens - Intens_bkg
 
-                    if self.checkBox_reductions_divideByMonitorOrTime.isChecked():
+                if self.checkBox_reductions_divideByMonitorOrTime.isChecked():
 
-                        if self.comboBox_reductions_divideByMonitorOrTime.currentText() == "monitor":
-                            monitor = monitor_list[index]
-                            if Intens == 0: IntensErr = IntensErr / monitor
-                            else: IntensErr = (Intens / monitor) * np.sqrt((IntensErr / Intens) ** 2 + (1 / monitor))
-                        elif self.comboBox_reductions_divideByMonitorOrTime.currentText() == "time":
-                            monitor = time_list[index]
-                            IntensErr = IntensErr / monitor
+                    if self.comboBox_reductions_divideByMonitorOrTime.currentText() == "monitor":
+                        monitor = monitor_list[index]
+                        if Intens == 0: IntensErr = IntensErr / monitor
+                        else: IntensErr = (Intens / monitor) * np.sqrt((IntensErr / Intens) ** 2 + (1 / monitor))
+                    elif self.comboBox_reductions_divideByMonitorOrTime.currentText() == "time":
+                        monitor = time_list[index]
+                        IntensErr = IntensErr / monitor
 
-                        Intens = Intens / monitor
+                    Intens = Intens / monitor
 
-                    if self.checkBox_reductions_overilluminationCorr.isChecked() and overillCorr > 0:
-                        IntensErr = IntensErr / overillCorr
-                        Intens = Intens / overillCorr
+                if self.checkBox_reductions_overilluminationCorr.isChecked() and overillCorr > 0:
+                    IntensErr = IntensErr / overillCorr
+                    Intens = Intens / overillCorr
 
-                    if self.checkBox_reductions_normalizeByDB.isChecked():
-                        try:
-                            DB_intens = float(self.DB_INFO[self.SFM_DB_FILE + ";" + str(s1hg) + ";" + str(s2hg)].split(";")[0]) * self.DB_attenFactor
-                            DB_err = overillCorr * float(self.DB_INFO[self.SFM_DB_FILE + ";" + str(s1hg) + ";" + str(s2hg)].split(";")[1]) * self.DB_attenFactor
-                            IntensErr = (Intens / DB_intens) * np.sqrt((DB_err / DB_intens) ** 2 + (IntensErr / Intens) ** 2)
-                            Intens = Intens / DB_intens
-                            self.statusbar.clearMessage()
-                        except:
-                            # if we try DB file without neccesary slits combination measured - show error message + redraw reflectivity_preview
-                            self.statusbar.showMessage("Error: Choose another DB file for this SFM data file.")
-                            self.checkBox_reductions_normalizeByDB.setCheckState(0)
-
-                    if self.checkBox_reductions_scaleFactor.isChecked():
-                        IntensErr = IntensErr / self.scaleFactor
-                        Intens = Intens / self.scaleFactor
-
+                if self.checkBox_reductions_normalizeByDB.isChecked():
                     try:
-                        show_first, show_last = int(self.lineEdit_SFM_reflectivityPreview_skipPoints_left.text()), len(self.th_list)-int(self.lineEdit_SFM_reflectivityPreview_skipPoints_right.text())
-                    except: show_first, show_last = 0, len(self.th_list)
+                        DB_intens = float(self.DB_INFO[self.SFM_DB_FILE + ";" + str(s1hg) + ";" + str(s2hg)].split(";")[0]) * self.DB_attenFactor
+                        DB_err = overillCorr * float(self.DB_INFO[self.SFM_DB_FILE + ";" + str(s1hg) + ";" + str(s2hg)].split(";")[1]) * self.DB_attenFactor
+                        IntensErr = (Intens / DB_intens) * np.sqrt((DB_err / DB_intens) ** 2 + (IntensErr / Intens) ** 2)
+                        Intens = Intens / DB_intens
+                        self.statusbar.clearMessage()
+                    except:
+                        # if we try DB file without neccesary slits combination measured - show error message + redraw reflectivity_preview
+                        self.statusbar.showMessage("Error: Choose another DB file for this SFM data file.")
+                        self.checkBox_reductions_normalizeByDB.setCheckState(0)
 
-                    if not Intens < 0 and index < show_last and index >= show_first:
-                        # I need this for "Reduce SFM" option. First - store one pol.
-                        SFM_export_Qz_onePol.append(Qz)
-                        SFM_export_I_onePol.append(Intens)
-                        SFM_export_dI_onePol.append(IntensErr)
-                        SFM_export_resolution_onePol.append(Resolution)
+                if self.checkBox_reductions_scaleFactor.isChecked():
+                    IntensErr = IntensErr / self.scaleFactor
+                    Intens = Intens / self.scaleFactor
 
-                        if Intens > 0:
-                            plot_I.append(np.log10(Intens))
-                            plot_angle.append(Qz)
-                            plot_dI_err_top.append(abs(np.log10(Intens + IntensErr) - np.log10(Intens)))
+                try:
+                    show_first, show_last = int(self.lineEdit_SFM_reflectivityPreview_skipPoints_left.text()), len(self.th_list)-int(self.lineEdit_SFM_reflectivityPreview_skipPoints_right.text())
+                except: show_first, show_last = 0, len(self.th_list)
 
-                            plot_overillumination.append(overillCorr_plot)
+                if not Intens < 0 and index < show_last and index >= show_first:
+                    # I need this for "Reduce SFM" option. First - store one pol.
+                    SFM_export_Qz_onePol.append(Qz)
+                    SFM_export_I_onePol.append(Intens)
+                    SFM_export_dI_onePol.append(IntensErr)
+                    SFM_export_resolution_onePol.append(Resolution)
 
-                            if Intens > IntensErr: plot_dI_err_bottom.append(np.log10(Intens) - np.log10(Intens - IntensErr))
-                            else: plot_dI_err_bottom.append(0)
+                    if Intens > 0:
+                        plot_I.append(np.log10(Intens))
+                        plot_angle.append(Qz)
+                        plot_dI_err_top.append(abs(np.log10(Intens + IntensErr) - np.log10(Intens)))
 
-                        if self.comboBox_SFM_reflectivityPreview_view_reflectivity.currentText() == "Lin":
-                            plot_I.pop()
-                            plot_I.append(Intens)
-                            plot_dI_err_top.pop()
-                            plot_dI_err_top.append(IntensErr)
-                            plot_dI_err_bottom.pop()
-                            plot_dI_err_bottom.append(IntensErr)
+                        plot_overillumination.append(overillCorr_plot)
 
-                        if self.comboBox_SFM_reflectivityPreview_view_angle.currentText() == "Deg":
-                            plot_angle.pop()
-                            plot_angle.append(th)
+                        if Intens > IntensErr: plot_dI_err_bottom.append(np.log10(Intens) - np.log10(Intens - IntensErr))
+                        else: plot_dI_err_bottom.append(0)
 
-                # I need this for "Reduse SFM" option. Second - combine all shown pol in one list variable.
-                # polarisations are uu, dd, ud, du
-                self.SFM_export_Qz.append(SFM_export_Qz_onePol)
-                self.SFM_export_I.append(SFM_export_I_onePol)
-                self.SFM_export_dI.append(SFM_export_dI_onePol)
-                self.SFM_export_resolution.append(SFM_export_resolution_onePol)
+                    if self.comboBox_SFM_reflectivityPreview_view_reflectivity.currentText() == "Lin":
+                        plot_I.pop()
+                        plot_I.append(Intens)
+                        plot_dI_err_top.pop()
+                        plot_dI_err_top.append(IntensErr)
+                        plot_dI_err_bottom.pop()
+                        plot_dI_err_bottom.append(IntensErr)
 
-                if self.checkBox_SFM_reflectivityPreview_includeErrorbars.isChecked():
-                    s1 = pg.ErrorBarItem(x=np.array(plot_angle), y=np.array(plot_I), top=np.array(plot_dI_err_top), bottom=np.array(plot_dI_err_bottom), pen=pg.mkPen(color[0], color[1], color[2]), brush=pg.mkBrush(color[0], color[1], color[2]))
-                    self.graphicsView_SFM_reflectivityPreview.addItem(s1)
+                    if self.comboBox_SFM_reflectivityPreview_view_angle.currentText() == "Deg":
+                        plot_angle.pop()
+                        plot_angle.append(th)
 
-                s2 = pg.ScatterPlotItem(x=plot_angle, y=plot_I, symbol="o", size=4, pen=pg.mkPen(color[0], color[1], color[2]), brush=pg.mkBrush(color[0], color[1], color[2]))
-                self.graphicsView_SFM_reflectivityPreview.addItem(s2)
+            # I need this for "Reduse SFM" option. Second - combine all shown pol in one list variable.
+            # polarisations are uu, dd, ud, du
+            self.SFM_export_Qz.append(SFM_export_Qz_onePol)
+            self.SFM_export_I.append(SFM_export_I_onePol)
+            self.SFM_export_dI.append(SFM_export_dI_onePol)
+            self.SFM_export_resolution.append(SFM_export_resolution_onePol)
 
-                if self.checkBox_SFM_reflectivityPreview_showOverillumination.isChecked():
-                    s3 = pg.PlotCurveItem(x=plot_angle, y=plot_overillumination, pen=pg.mkPen(color=(255, 0, 0), width=1), brush=pg.mkBrush(color=(255, 0, 0), width=1) )
-                    self.graphicsView_SFM_reflectivityPreview.addItem(s3)
+            if self.checkBox_SFM_reflectivityPreview_includeErrorbars.isChecked():
+                s1 = pg.ErrorBarItem(x=np.array(plot_angle), y=np.array(plot_I), top=np.array(plot_dI_err_top), bottom=np.array(plot_dI_err_bottom), pen=pg.mkPen(color[0], color[1], color[2]), brush=pg.mkBrush(color[0], color[1], color[2]))
+                self.graphicsView_SFM_reflectivityPreview.addItem(s1)
 
-                if self.checkBox_SFM_reflectivityPreview_showZeroLevel.isChecked():
-                    if self.comboBox_SFM_reflectivityPreview_view_reflectivity.currentText() == "Lin": level = np.array([1, 1])
-                    else: level = np.array([0, 0])
-                    s4 = pg.PlotCurveItem(x=np.array([min(plot_angle), max(plot_angle)]), y=level, pen=pg.mkPen(color=(0, 0, 255), width=1), brush=pg.mkBrush(color=(255, 0, 0), width=1) )
-                    self.graphicsView_SFM_reflectivityPreview.addItem(s4)
+            s2 = pg.ScatterPlotItem(x=plot_angle, y=plot_I, symbol="o", size=4, pen=pg.mkPen(color[0], color[1], color[2]), brush=pg.mkBrush(color[0], color[1], color[2]))
+            self.graphicsView_SFM_reflectivityPreview.addItem(s2)
+
+            if self.checkBox_SFM_reflectivityPreview_showOverillumination.isChecked():
+                s3 = pg.PlotCurveItem(x=plot_angle, y=plot_overillumination, pen=pg.mkPen(color=(255, 0, 0), width=1), brush=pg.mkBrush(color=(255, 0, 0), width=1) )
+                self.graphicsView_SFM_reflectivityPreview.addItem(s3)
+
+            if self.checkBox_SFM_reflectivityPreview_showZeroLevel.isChecked():
+                if self.comboBox_SFM_reflectivityPreview_view_reflectivity.currentText() == "Lin": level = np.array([1, 1])
+                else: level = np.array([0, 0])
+                s4 = pg.PlotCurveItem(x=np.array([min(plot_angle), max(plot_angle)]), y=level, pen=pg.mkPen(color=(0, 0, 255), width=1), brush=pg.mkBrush(color=(255, 0, 0), width=1) )
+                self.graphicsView_SFM_reflectivityPreview.addItem(s4)
 
     def f_SFM_2Dmap_draw(self):
 
