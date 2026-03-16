@@ -1,3 +1,4 @@
+#!/bin/python3
 #
 # Install with:
 #   * Windows - pyinstaller --onefile --noconsole -i"C:\icon.ico" --add-data C:\icon.ico;images C:\pySAred_V1.5.1.py
@@ -28,15 +29,15 @@ class GUI(ui.Ui_MainWindow):
         # Some parameters
         self.roiLocked = []
         self.SFM_FILE, self.SFMFileAlreadyAnalized, self.SFMFile2dCalculatedParams = "", "", []  # current file in Single File Mode
-        self.SFM_psdUU, self.SFM_psdDU, self.SFM_psdUD, self.SFM_psdDD = [], [], [], []             # 2d arrays of pol detector
-        self.th_current = ""                                                                            # current th point
-        self.dict_overillCoeff = {}                                                                     # write calculated overillumination coefficients into library
-        self.DB_INFO, self.dbAlreadyAnalized = {}, []                                                 # Write DB info into library
-        self.roi_draw, self.roi_draw_bkg, self.roi_draw_2Dmap = [], [], []                             # ROI frames
-        self.roi_oldCoord_Y, self.roi_draw_int = [], []                                                # Recalc intens if Y roi is changed
-        self.trigger_showDetInt = True                                                                # Trigger to switch the detector image view
-        self.res_aif = []                                                                               # Alpha_i vs Alpha_f array
-        self.sampleCurvature_last = []                                                               # Last sample curvature (lets avoid extra recalcs)
+        self.SFM_psdUU, self.SFM_psdDU, self.SFM_psdUD, self.SFM_psdDD = [], [], [], []          # 2d arrays of pol detector
+        self.th_current = ""                                                                     # current th point
+        self.dict_overillCoeff = {}                                                              # write calculated overillumination coefficients into library
+        self.DB_INFO, self.dbAlreadyAnalized = {}, []                                            # Write DB info into library
+        self.roi_draw, self.roi_draw_bkg, self.roi_draw_2Dmap = [], [], []                       # ROI frames
+        self.roi_oldCoord_Y, self.roi_draw_int = [], []                                          # Recalc intens if Y roi is changed
+        self.trigger_showDetInt = True                                                           # Trigger to switch the detector image view
+        self.res_aif = []                                                                        # Alpha_i vs Alpha_f array
+        self.sampleCurvature_last = []                                                           # Last sample curvature (lets avoid extra recalcs)
 
         # Triggers
         self.action_version.triggered.connect(self.f_menu_info)

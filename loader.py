@@ -59,7 +59,7 @@ class H5Loader:
             elif "'m3'" in str(scaler): self.monitor_du_list = SCALERS_DATA[index]
             elif "'m4'" in str(scaler): self.monitor_ud_list = SCALERS_DATA[index]
 
-        roi = np.array(self.SCAN.get("instrument").get('scalers').get('roi').get("roi"))
+        self.roi = np.array(self.SCAN.get("instrument").get('scalers').get('roi').get("roi"))
 
         self.is_polarised = "pnr" in list(self.FILE[list(self.FILE.keys())[0]])
         if self.is_polarised:
