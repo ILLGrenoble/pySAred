@@ -66,8 +66,7 @@ class GUI(ui.Ui_MainWindow):
         # Triggers: ComboBoxes
         arr_CoB_detectorImage = [self.comboBox_SFM_detectorImage_incidentAngle, self.comboBox_SFM_detectorImage_polarisation, self.comboBox_SFM_detectorImage_colorScheme]
         arr_CoB_reflectivityPreview = [self.comboBox_reductions_divideByMonitorOrTime, self.comboBox_export_angle, self.comboBox_SFM_DB, self.comboBox_SFM_scan, self.comboBox_SFM_reflectivityPreview_view_angle, self.comboBox_SFM_reflectivityPreview_view_reflectivity]
-        arr_CoB_2dmap = [self.comboBox_SFM_2Dmap_QxzThreshold, self.comboBox_SFM_2Dmap_polarisation, self.comboBox_SFM_2Dmap_axes, self.comboBox_SFM_scan,
-                        self.comboBox_SFM_2Dmap_lowerNumberOfPointsBy, self.comboBox_SFM_2Dmap_view_scale]
+        arr_CoB_2dmap = [self.comboBox_SFM_2Dmap_QxzThreshold, self.comboBox_SFM_2Dmap_polarisation, self.comboBox_SFM_2Dmap_axes, self.comboBox_SFM_scan, self.comboBox_SFM_2Dmap_lowerNumberOfPointsBy, self.comboBox_SFM_2Dmap_view_scale]
 
         self.comboBox_SFM_scan.currentIndexChanged.connect(self.f_SFM_detectorImage_load)
         self.comboBox_reductions_divideByMonitorOrTime.currentIndexChanged.connect(self.f_DB_analaze)
@@ -223,7 +222,7 @@ class GUI(ui.Ui_MainWindow):
             time_list = file.get_time()
 
             # check if we have several polarisations
-            for detector in file.get_det_types():
+            for detector in file.get_detector_types():
                 if detector == "psd": monitor_list = monitor_unpol_list
                 elif detector == "psd_uu": monitor_list = monitor_uu_list
                 elif detector == "psd_dd": monitor_list = monitor_dd_list
@@ -552,7 +551,7 @@ class GUI(ui.Ui_MainWindow):
         psdUnpol = file.get_psd()
         detector_images = None
 
-        for i in file.get_det_types():
+        for i in file.get_detector_types():
             if i not in ("psd", "psd_uu", "psd_dd", "psd_du", "psd_ud"): continue
             scan_psd = "psd" if i == "psd" else "psd_" + self.comboBox_SFM_detectorImage_polarisation.currentText()
             if scan_psd == "psd": detector_images = psdUnpol
