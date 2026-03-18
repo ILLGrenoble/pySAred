@@ -560,64 +560,67 @@ class GUI(ui.Ui_MainWindow):
             elif scan_psd == "psd_du": detector_images = psdDU
             elif scan_psd == "psd_ud": detector_images = psdUD
 
+        # check th
+        found_th = False
         for index, th in enumerate(self.th_list):
-            # check th
             if self.th_current == str(round(th, 3)):
-                self.lineEdit_SFM_detectorImage_slits_s1hg.setText(str(self.s1hg_list[index]))
-                self.lineEdit_SFM_detectorImage_slits_s2hg.setText(str(self.s2hg_list[index]))
-                self.lineEdit_SFM_detectorImage_time.setText(str(time_list[index]))
-
-                # seems to be a bug in numpy arrays imported from hdf5 files. Problem is solved after I subtract ZEROs array with the same dimentions.
-                detector_image = np.around(detector_images[index], decimals=0).astype(int)
-                detector_image = np.subtract(detector_image, np.zeros((detector_image.shape[0], detector_image.shape[1])))
-                # integrate detector image with respect to ROI Y coordinates
-                detector_image_int = detector_image[int(self.lineEdit_SFM_detectorImage_roiY_top.text()): int(self.lineEdit_SFM_detectorImage_roiY_bottom.text()), :].sum(axis=0).astype(int)
-
-                self.graphicsView_SFM_detectorImage.setImage(detector_image, axes={'x':1, 'y':0}, levels=(0,0.1))
-                self.graphicsView_SFM_detectorImage_roi.addItem(pg.PlotCurveItem(y = detector_image_int, pen=pg.mkPen(color=(0, 0, 0), width=2), brush=pg.mkBrush(color=(255, 0, 0), width=3)))
-
-                if self.comboBox_SFM_detectorImage_colorScheme.currentText() == "White / Black":
-                    self.color_det_image = np.array([[0, 0, 0, 255], [255, 255, 255, 255], [255, 255, 255, 255]], dtype=np.ubyte)
-                elif self.comboBox_SFM_detectorImage_colorScheme.currentText() == "Green / Blue":
-                    self.color_det_image = np.array([[0, 0, 255, 255], [255, 0, 0, 255], [0, 255, 0, 255]], dtype=np.ubyte)
-                pos = np.array([0.0, 0.1, 1.0])
-
-                self.graphicsView_SFM_detectorImage.setColorMap(pg.ColorMap(pos, self.color_det_image))
-
-                # add ROI rectangular
-                spots_ROI_detInt = []
-                if self.roi_draw: self.graphicsView_SFM_detectorImage.removeItem(self.roi_draw)
-                if self.roi_draw_bkg: self.graphicsView_SFM_detectorImage.removeItem(self.roi_draw_bkg)
-
-                # add ROI rectangular
-                spots_ROI_det_view = {'x': (int(self.lineEdit_SFM_detectorImage_roiX_left.text()), int(self.lineEdit_SFM_detectorImage_roiX_right.text()), int(self.lineEdit_SFM_detectorImage_roiX_right.text()), int(self.lineEdit_SFM_detectorImage_roiX_left.text()), int(self.lineEdit_SFM_detectorImage_roiX_left.text())),
-                                'y': (int(self.lineEdit_SFM_detectorImage_roiY_top.text()), int(self.lineEdit_SFM_detectorImage_roiY_top.text()), int(self.lineEdit_SFM_detectorImage_roiY_bottom.text()), int(self.lineEdit_SFM_detectorImage_roiY_bottom.text()), int(self.lineEdit_SFM_detectorImage_roiY_top.text()))}
-
-                self.roi_draw = pg.PlotDataItem(spots_ROI_det_view, pen=pg.mkPen(255, 255, 255), connect="all")
-                self.graphicsView_SFM_detectorImage.addItem(self.roi_draw)
-
-                # add BKG ROI rectangular
-                if self.checkBox_reductions_subtractBkg.isChecked():
-                    spots_ROI_det_view = {'x': (int(self.lineEdit_SFM_detectorImage_roi_bkgX_left.text()), int(self.lineEdit_SFM_detectorImage_roi_bkgX_right.text()),
-                                                int(self.lineEdit_SFM_detectorImage_roi_bkgX_right.text()), int(self.lineEdit_SFM_detectorImage_roi_bkgX_left.text()),
-                                                int(self.lineEdit_SFM_detectorImage_roi_bkgX_left.text())),
-                                            'y': (int(self.lineEdit_SFM_detectorImage_roiY_top.text()), int(self.lineEdit_SFM_detectorImage_roiY_top.text()),
-                                                int(self.lineEdit_SFM_detectorImage_roiY_bottom.text()), int(self.lineEdit_SFM_detectorImage_roiY_bottom.text()),
-                                                int(self.lineEdit_SFM_detectorImage_roiY_top.text()))}
-
-                    self.roi_draw_bkg = pg.PlotDataItem(spots_ROI_det_view, pen=pg.mkPen(color=(255, 255, 255), style=QtCore.Qt.DashLine), connect="all")
-                    self.graphicsView_SFM_detectorImage.addItem(self.roi_draw_bkg)
-
-                if self.roi_draw_int: self.graphicsView_SFM_detectorImage_roi.removeItem(self.roi_draw_int)
-
-                for i in range(0, detector_image_int.max()):
-                    spots_ROI_detInt.append({'x': int(self.lineEdit_SFM_detectorImage_roiX_left.text()), 'y': i})
-                    spots_ROI_detInt.append({'x': int(self.lineEdit_SFM_detectorImage_roiX_right.text()), 'y': i})
-
-                self.roi_draw_int = pg.ScatterPlotItem(spots=spots_ROI_detInt, size=1, pen=pg.mkPen(255, 0, 0))
-                self.graphicsView_SFM_detectorImage_roi.addItem(self.roi_draw_int)
-
+                found_th = True
                 break
+
+        if found_th:
+            self.lineEdit_SFM_detectorImage_slits_s1hg.setText(str(self.s1hg_list[index]))
+            self.lineEdit_SFM_detectorImage_slits_s2hg.setText(str(self.s2hg_list[index]))
+            self.lineEdit_SFM_detectorImage_time.setText(str(time_list[index]))
+
+            # seems to be a bug in numpy arrays imported from hdf5 files. Problem is solved after I subtract ZEROs array with the same dimentions.
+            detector_image = np.around(detector_images[index], decimals=0).astype(int)
+            detector_image = np.subtract(detector_image, np.zeros((detector_image.shape[0], detector_image.shape[1])))
+            # integrate detector image with respect to ROI Y coordinates
+            detector_image_int = detector_image[int(self.lineEdit_SFM_detectorImage_roiY_top.text()): int(self.lineEdit_SFM_detectorImage_roiY_bottom.text()), :].sum(axis=0).astype(int)
+
+            self.graphicsView_SFM_detectorImage.setImage(detector_image, axes={'x':1, 'y':0}, levels=(0,0.1))
+            self.graphicsView_SFM_detectorImage_roi.addItem(pg.PlotCurveItem(y = detector_image_int, pen=pg.mkPen(color=(0, 0, 0), width=2), brush=pg.mkBrush(color=(255, 0, 0), width=3)))
+
+            if self.comboBox_SFM_detectorImage_colorScheme.currentText() == "White / Black":
+                self.color_det_image = np.array([[0, 0, 0, 255], [255, 255, 255, 255], [255, 255, 255, 255]], dtype=np.ubyte)
+            elif self.comboBox_SFM_detectorImage_colorScheme.currentText() == "Green / Blue":
+                self.color_det_image = np.array([[0, 0, 255, 255], [255, 0, 0, 255], [0, 255, 0, 255]], dtype=np.ubyte)
+            pos = np.array([0.0, 0.1, 1.0])
+
+            self.graphicsView_SFM_detectorImage.setColorMap(pg.ColorMap(pos, self.color_det_image))
+
+            # add ROI rectangular
+            spots_ROI_detInt = []
+            if self.roi_draw: self.graphicsView_SFM_detectorImage.removeItem(self.roi_draw)
+            if self.roi_draw_bkg: self.graphicsView_SFM_detectorImage.removeItem(self.roi_draw_bkg)
+
+            # add ROI rectangular
+            spots_ROI_det_view = {'x': (int(self.lineEdit_SFM_detectorImage_roiX_left.text()), int(self.lineEdit_SFM_detectorImage_roiX_right.text()), int(self.lineEdit_SFM_detectorImage_roiX_right.text()), int(self.lineEdit_SFM_detectorImage_roiX_left.text()), int(self.lineEdit_SFM_detectorImage_roiX_left.text())),
+                            'y': (int(self.lineEdit_SFM_detectorImage_roiY_top.text()), int(self.lineEdit_SFM_detectorImage_roiY_top.text()), int(self.lineEdit_SFM_detectorImage_roiY_bottom.text()), int(self.lineEdit_SFM_detectorImage_roiY_bottom.text()), int(self.lineEdit_SFM_detectorImage_roiY_top.text()))}
+
+            self.roi_draw = pg.PlotDataItem(spots_ROI_det_view, pen=pg.mkPen(255, 255, 255), connect="all")
+            self.graphicsView_SFM_detectorImage.addItem(self.roi_draw)
+
+            # add BKG ROI rectangular
+            if self.checkBox_reductions_subtractBkg.isChecked():
+                spots_ROI_det_view = {'x': (int(self.lineEdit_SFM_detectorImage_roi_bkgX_left.text()), int(self.lineEdit_SFM_detectorImage_roi_bkgX_right.text()),
+                                            int(self.lineEdit_SFM_detectorImage_roi_bkgX_right.text()), int(self.lineEdit_SFM_detectorImage_roi_bkgX_left.text()),
+                                            int(self.lineEdit_SFM_detectorImage_roi_bkgX_left.text())),
+                                        'y': (int(self.lineEdit_SFM_detectorImage_roiY_top.text()), int(self.lineEdit_SFM_detectorImage_roiY_top.text()),
+                                            int(self.lineEdit_SFM_detectorImage_roiY_bottom.text()), int(self.lineEdit_SFM_detectorImage_roiY_bottom.text()),
+                                            int(self.lineEdit_SFM_detectorImage_roiY_top.text()))}
+
+                self.roi_draw_bkg = pg.PlotDataItem(spots_ROI_det_view, pen=pg.mkPen(color=(255, 255, 255), style=QtCore.Qt.DashLine), connect="all")
+                self.graphicsView_SFM_detectorImage.addItem(self.roi_draw_bkg)
+
+            if self.roi_draw_int: self.graphicsView_SFM_detectorImage_roi.removeItem(self.roi_draw_int)
+
+            for i in range(0, detector_image_int.max()):
+                spots_ROI_detInt.append({'x': int(self.lineEdit_SFM_detectorImage_roiX_left.text()), 'y': i})
+                spots_ROI_detInt.append({'x': int(self.lineEdit_SFM_detectorImage_roiX_right.text()), 'y': i})
+
+            self.roi_draw_int = pg.ScatterPlotItem(spots=spots_ROI_detInt, size=1, pen=pg.mkPen(255, 0, 0))
+            self.graphicsView_SFM_detectorImage_roi.addItem(self.roi_draw_int)
 
         # Show "integrated roi" part
         if self.sender().objectName() == "pushButton_SFM_detectorImage_showIntegratedRoi":
