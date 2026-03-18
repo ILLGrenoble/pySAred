@@ -221,17 +221,30 @@ class GUI(ui.Ui_MainWindow):
             monitor_uu_list, monitor_dd_list, monitor_du_list, monitor_ud_list = file.get_mon_pol()
             time_list = file.get_time()
 
+            psdUnpol = file.get_psd()
+            psdUU, psdDD, psdDU, psdUD = file.get_psd_pol()
+
             # check if we have several polarisations
             for detector in file.get_detector_types():
-                if detector == "psd": monitor_list = monitor_unpol_list
-                elif detector == "psd_uu": monitor_list = monitor_uu_list
-                elif detector == "psd_dd": monitor_list = monitor_dd_list
-                elif detector == "psd_du": monitor_list = monitor_du_list
-                elif detector == "psd_ud": monitor_list = monitor_ud_list
+                if detector == "psd":
+                    detector_images = psdUnpol
+                    monitor_list = monitor_unpol_list
+                elif detector == "psd_uu":
+                    detector_images = psdUU
+                    monitor_list = monitor_uu_list
+                elif detector == "psd_dd":
+                    detector_images = psdDD
+                    monitor_list = monitor_dd_list
+                elif detector == "psd_du":
+                    detector_images = psdDU
+                    monitor_list = monitor_du_list
+                elif detector == "psd_ud":
+                    detector_images = psdUD
+                    monitor_list = monitor_ud_list
                 else: continue
 
                 original_roi_coord = file.get_roi()
-                scan_intens = file.get_psd()[:, int(original_roi_coord[0]): int(original_roi_coord[1]), :].sum(axis=1)
+                scan_intens = detector_images[:, int(original_roi_coord[0]): int(original_roi_coord[1]), :].sum(axis=1)
 
                 new_file = open(dir_saveFile + file_name + "_" + detector + " (" + FILE_DB + ")" + ".dat", "w")
 
@@ -547,8 +560,8 @@ class GUI(ui.Ui_MainWindow):
         self.s2hg_list = file.get_s2hg()
         time_list = file.get_time()
 
-        psdUU, psdDD, psdDU, psdUD = file.get_psd_pol()
         psdUnpol = file.get_psd()
+        psdUU, psdDD, psdDU, psdUD = file.get_psd_pol()
         detector_images = None
 
         for i in file.get_detector_types():
