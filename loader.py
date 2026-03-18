@@ -2,9 +2,32 @@ import h5py
 import numpy as np
 
 
-class H5Loader:
+
+class ILoader:
+    def is_ok(self): pass
+    def is_pol(self): pass
+
+    def get_h5(self): pass
+
+    def get_th(self): pass
+    def get_tth(self): pass
+    def get_s1hg(self): pass
+    def get_s2hg(self): pass
+    def get_intens(self): pass
+    def get_time(self): pass
+    def get_mon(self): pass
+    def get_mon_pol(self): pass
+    def get_psd(self): pass
+    def get_psd_pol(self): pass
+    def get_ponos_pol(self): pass
+    def get_det_types(self): pass
+    def get_ponos_types(self): pass
+    def get_roi(self): pass
+
+
+
+class H5Loader(ILoader):
     FILE = None
-    SCAN = None
 
     th_list = []
     tth_list = []
@@ -25,6 +48,11 @@ class H5Loader:
     detector_images_dd = None
     detector_images_du = None
     detector_images_ud = None
+    ponos_images_uu = None
+    ponos_images_dd = None
+    ponos_images_du = None
+    ponos_images_ud = None
+    ponos_types = []
     roi = []
 
     file_ok = False
@@ -42,7 +70,8 @@ class H5Loader:
         MOTOR_DATA = np.array(INSTRUMENT.get('motors').get('data')).T
         SCALERS_DATA = np.array(INSTRUMENT.get('scalers').get('data')).T
         PONOS = self.FILE[list(self.FILE.keys())[0]].get("ponos")
-        self.SCAN = self.FILE[list(self.FILE.keys())[0]]
+        SCAN = self.FILE[list(self.FILE.keys())[0]]
+        DETECTORS = INSTRUMENT.get("detectors")
 
         for index, motor in enumerate(INSTRUMENT.get('motors').get('SPEC_motor_mnemonics')):
             if "'th'" in str(motor): self.th_list = MOTOR_DATA[index]
@@ -59,21 +88,33 @@ class H5Loader:
             elif "'m3'" in str(scaler): self.monitor_du_list = SCALERS_DATA[index]
             elif "'m4'" in str(scaler): self.monitor_ud_list = SCALERS_DATA[index]
 
-        self.roi = np.array(self.SCAN.get("instrument").get('scalers').get('roi').get("roi"))
+        self.roi = np.array(SCAN.get("instrument").get('scalers').get('roi').get("roi"))
 
         self.is_polarised = "pnr" in list(self.FILE[list(self.FILE.keys())[0]])
-        if self.is_polarised:
-            for scan in PONOS.get('data'):
-                if str(scan) == "data_uu":
-                    self.detector_images_uu = INSTRUMENT.get("detectors").get("psd_uu").get('data')
-                elif str(scan) == "data_ud":
-                    self.detector_images_ud = INSTRUMENT.get("detectors").get("psd_ud").get('data')
-                elif str(scan) == "data_du":
-                    self.detector_images_du = INSTRUMENT.get("detectors").get("psd_du").get('data')
-                elif str(scan) == "data_dd":
-                    self.detector_images_dd = INSTRUMENT.get("detectors").get("psd_dd").get('data')
-        else:
-            self.detector_images = INSTRUMENT.get("detectors").get("psd").get('data')
+        for scan in PONOS.get('data'):
+            if str(scan) == "data_uu":
+                if self.is_polarised:
+                    self.detector_images_uu = DETECTORS.get("psd_uu").get('data')
+                self.ponos_images_uu = PONOS.get('data').get("data_uu")
+                self.ponos_types.append("data_uu")
+            elif str(scan) == "data_ud":
+                if self.is_polarised:
+                    self.detector_images_ud = DETECTORS.get("psd_ud").get('data')
+                self.ponos_images_ud = PONOS.get('data').get("data_ud")
+                self.ponos_types.append("data_ud")
+            elif str(scan) == "data_du":
+                if self.is_polarised:
+                    self.detector_images_du = DETECTORS.get("psd_du").get('data')
+                self.ponos_images_du = PONOS.get('data').get("data_du")
+                self.ponos_types.append("data_du")
+            elif str(scan) == "data_dd":
+                if self.is_polarised:
+                    self.detector_images_dd = DETECTORS.get("psd_dd").get('data')
+                self.ponos_images_dd = PONOS.get('data').get("data_dd")
+                self.ponos_types.append("data_dd")
+
+        if not self.is_polarised:
+            self.detector_images = DETECTORS.get("psd").get('data')
 
         for det in INSTRUMENT.get('detectors'):
             self.det_types.append(str(det))
@@ -85,7 +126,6 @@ class H5Loader:
     def is_ok(self): return self.file_ok
     def is_pol(self): return self.is_polarised
     def get_h5(self): return self.FILE
-    def get_scan(self): return self.SCAN
     def get_th(self): return self.th_list
     def get_tth(self): return self.tth_list
     def get_s1hg(self): return self.s1hg_list
@@ -97,8 +137,12 @@ class H5Loader:
     def get_psd(self): return self.detector_images
     def get_psd_pol(self): return [ self.detector_images_uu, self.detector_images_dd, self.detector_images_du, self.detector_images_ud ]
     def get_det_types(self): return self.det_types
+    def get_ponos_pol(self): return [ self.ponos_images_uu, self.ponos_images_dd, self.ponos_images_du, self.ponos_images_ud ]
+    def get_ponos_types(self): return self.ponos_types
     def get_roi(self): return self.roi
+
 
 
 # test
 #file = H5Loader("/users/tw/tmp/data/00593.h5")
+#print(file.get_th())

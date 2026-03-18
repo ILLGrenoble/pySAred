@@ -224,13 +224,12 @@ class GUI(ui.Ui_MainWindow):
 
             # check if we have several polarisations
             for detector in file.get_det_types():
-                if detector not in ("psd", "psd_du", "psd_uu", "psd_ud", "psd_dd"): continue
-
                 if detector == "psd": monitor_list = monitor_unpol_list
                 elif detector == "psd_uu": monitor_list = monitor_uu_list
                 elif detector == "psd_dd": monitor_list = monitor_dd_list
                 elif detector == "psd_du": monitor_list = monitor_du_list
                 elif detector == "psd_ud": monitor_list = monitor_ud_list
+                else: continue
 
                 original_roi_coord = file.get_roi()
                 scan_intens = file.get_psd()[:, int(original_roi_coord[0]): int(original_roi_coord[1]), :].sum(axis=1)
@@ -491,9 +490,8 @@ class GUI(ui.Ui_MainWindow):
             print("Error reading file %s." % self.SFM_FILE)
             return
 
-        SCAN = file.get_scan()
         if not self.roiLocked == [] and self.checkBox_SFM_detectorImage_lockRoi.isChecked(): original_roi_coord = np.array(self.roiLocked[0])
-        else: original_roi_coord = np.array(SCAN.get("instrument").get('scalers').get('roi').get("roi"))
+        else: original_roi_coord = file.get_roi()
 
         roi_width = int(str(original_roi_coord[3])[:-2]) - int(str(original_roi_coord[2])[:-2])
 
@@ -508,15 +506,24 @@ class GUI(ui.Ui_MainWindow):
         else: self.lineEdit_SFM_detectorImage_roi_bkgX_right.setText(str(int(self.lineEdit_SFM_detectorImage_roiX_left.text()) - roi_width))
         self.lineEdit_SFM_detectorImage_roi_bkgX_left.setText(str(int(self.lineEdit_SFM_detectorImage_roi_bkgX_right.text()) - roi_width))
 
-        for index, th in enumerate(SCAN.get("instrument").get('motors').get('th').get("value")):
+        for index, th in enumerate(file.get_th()):
             self.comboBox_SFM_detectorImage_incidentAngle.addItem(str(round(th, 3)))
 
-        if len(SCAN.get("ponos").get('data')) == 1:
+        det_uu_list, det_dd_list, det_du_list, det_ud_list = file.get_ponos_pol()
+
+        if len(file.get_ponos_types()) == 1:
             for item in (self.comboBox_SFM_detectorImage_polarisation, self.comboBox_SFM_2Dmap_polarisation): item.addItem("uu")
-        for polarisation in SCAN.get("ponos").get('data'):
-            if polarisation not in ("data_du", "data_uu", "data_dd", "data_ud"): continue
-            if np.any(np.array(SCAN.get("ponos").get('data').get(polarisation))):
-                for item in (self.comboBox_SFM_detectorImage_polarisation, self.comboBox_SFM_2Dmap_polarisation): item.addItem(str(polarisation)[-2:])
+
+        for polarisation in file.get_ponos_types():
+            det_list = None
+            if polarisation == "data_uu": det_list = det_uu_list
+            elif polarisation == "data_dd": det_list = det_dd_list
+            elif polarisation == "data_du": det_list = det_du_list
+            elif polarisation == "data_ud": det_list = det_ud_list
+            else: continue
+
+            if np.any(np.array(det_list)):
+                for item in (self.comboBox_SFM_detectorImage_polarisation, self.comboBox_SFM_2Dmap_polarisation): item.addItem(polarisation[-2:])
 
         self.comboBox_SFM_detectorImage_polarisation.setCurrentIndex(0)
         self.comboBox_SFM_2Dmap_polarisation.setCurrentIndex(0)
@@ -541,11 +548,18 @@ class GUI(ui.Ui_MainWindow):
         self.s2hg_list = file.get_s2hg()
         time_list = file.get_time()
 
+        psdUU, psdDD, psdDU, psdUD = file.get_psd_pol()
+        psdUnpol = file.get_psd()
+        detector_images = None
+
         for i in file.get_det_types():
             if i not in ("psd", "psd_uu", "psd_dd", "psd_du", "psd_ud"): continue
             scan_psd = "psd" if i == "psd" else "psd_" + self.comboBox_SFM_detectorImage_polarisation.currentText()
-
-        detector_images = file.get_psd()
+            if scan_psd == "psd": detector_images = psdUnpol
+            elif scan_psd == "psd_uu": detector_images = psdUU
+            elif scan_psd == "psd_dd": detector_images = psdDD
+            elif scan_psd == "psd_du": detector_images = psdDU
+            elif scan_psd == "psd_ud": detector_images = psdUD
 
         for index, th in enumerate(self.th_list):
             # check th
@@ -715,11 +729,11 @@ class GUI(ui.Ui_MainWindow):
         # reSUM if we change SFM file or Sample curvature
         if not (self.SFM_FILE == self.SFMFileAlreadyAnalized and sampleCurvature_recalc):
             if file.is_pol():
-                self.SFM_psdUU, self.SFM_psdDD, self.SFM_psdDU, self.SFM_psdUD = file.get_det_pol()
-                self.SFM_psdUU = self.SFM_psdUU[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
-                self.SFM_psdDD = self.SFM_psdDD[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
-                self.SFM_psdDU = self.SFM_psdDU[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
-                self.SFM_psdUD = self.SFM_psdUD[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
+                self.SFM_psdUU, self.SFM_psdDD, self.SFM_psdDU, self.SFM_psdUD = file.get_psd_pol()
+                if self.SFM_psdUU != None: self.SFM_psdUU = self.SFM_psdUU[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
+                if self.SFM_psdDD != None: self.SFM_psdDD = self.SFM_psdDD[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
+                if self.SFM_psdDU != None: self.SFM_psdDU = self.SFM_psdDU[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
+                if self.SFM_psdUD != None: self.SFM_psdUD = self.SFM_psdUD[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
             else:
                 self.SFM_psdUU = file.get_psd()[:, int(roi_coord_Y[0]) : int(roi_coord_Y[1]), :].sum(axis=1)
 
@@ -803,9 +817,13 @@ class GUI(ui.Ui_MainWindow):
                 # Save resolution in sigma rather than in FWHM units
                 Resolution = Resolution / (2 * np.sqrt(2 * np.log(2)))
 
-                # analize integrated intensity for ROI
-                Intens = sum(SFM_scanIntens[index][roi_coord_X[0]: roi_coord_X[1]])
-                Intens_bkg = sum(SFM_scanIntens[index][roi_coord_X_BKG[0] : roi_coord_X_BKG[1]])
+                # analyze integrated intensity for ROI
+                if SFM_scanIntens is None:
+                    Intens = 0
+                    Intens_bkg = 0
+                else:
+                    Intens = sum(SFM_scanIntens[index][roi_coord_X[0]: roi_coord_X[1]])
+                    Intens_bkg = sum(SFM_scanIntens[index][roi_coord_X_BKG[0] : roi_coord_X_BKG[1]])
 
                 # minus background, divide by monitor, overillumination correct + calculate errors
                 if not Intens > 0: Intens = 0
