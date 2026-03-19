@@ -58,6 +58,12 @@ class ILoader:
         return [ unpol, uu, dd, du, ud ]
 
 
+    @staticmethod
+    def load(filename):
+        # TODO; choose between loaders here
+        return H5Loader(filename)
+
+
 
 class H5Loader(ILoader):
     FILE = None
@@ -148,6 +154,6 @@ class H5Loader(ILoader):
 
 
 # test
-#file = H5Loader("00593.h5")
-#file = H5Loader("test_file.h5")
+#file = ILoader.load("00593.h5")
+#file = ILoader.load("test_file.h5")
 #print(file.get_th())

@@ -9,7 +9,7 @@ import ui
 from ui import QtCore, QtGui, QtWidgets
 import pyqtgraph as pg
 import numpy as np
-import loader
+from loader import ILoader
 import os, sys, platform
 from scipy.interpolate import griddata
 
@@ -202,7 +202,7 @@ class GUI(ui.Ui_MainWindow):
             # find full name DB file if there are several of them
             FILE_DB = self.tableWidget_scans.item(i, 1).text() if self.checkBox_reductions_normalizeByDB.isChecked() else ""
 
-            file = loader.H5Loader(self.tableWidget_scans.item(i, 2).text())
+            file = ILoader.load(self.tableWidget_scans.item(i, 2).text())
             if not file.is_ok():
                 print("Error reading file %s." % self.tableWidget_scans.item(i, 2).text())
                 continue
@@ -410,7 +410,7 @@ class GUI(ui.Ui_MainWindow):
         self.DB_INFO = {}
 
         for i in range(0, self.tableWidget_DB.rowCount()):
-            file = loader.H5Loader(self.tableWidget_DB.item(i,1).text())
+            file = ILoader.load(self.tableWidget_DB.item(i,1).text())
             if not file.is_ok():
                 print("Error reading file %s." % self.tableWidget_DB.item(i,1).text())
                 continue
@@ -472,7 +472,7 @@ class GUI(ui.Ui_MainWindow):
         for i in range(0, self.tableWidget_scans.rowCount()):
             self.SFM_FILE = self.tableWidget_scans.item(i, 2).text() if self.tableWidget_scans.item(i, 0).text() == self.comboBox_SFM_scan.currentText() else self.SFM_FILE
 
-        file = loader.H5Loader(self.SFM_FILE)
+        file = ILoader.load(self.SFM_FILE)
         if not file.is_ok():
             print("Error reading file %s." % self.SFM_FILE)
             return
@@ -517,7 +517,7 @@ class GUI(ui.Ui_MainWindow):
 
         if self.SFM_FILE == "": return
 
-        file = loader.H5Loader(self.SFM_FILE)
+        file = ILoader.load(self.SFM_FILE)
         if not file.is_ok():
             print("Error reading file %s." % self.SFM_FILE)
             return
@@ -678,7 +678,7 @@ class GUI(ui.Ui_MainWindow):
         self.SFM_DB_FILE = self.comboBox_SFM_DB.currentText()
 
         # Open analyzed file
-        file = loader.H5Loader(self.SFM_FILE)
+        file = ILoader.load(self.SFM_FILE)
         if not file.is_ok():
             print("Error reading file %s." % self.SFM_FILE)
             return
