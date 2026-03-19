@@ -529,10 +529,10 @@ class GUI(ui.Ui_MainWindow):
         self.s2hg_list = file.get_s2hg()
         time_list = file.get_time()
 
-        for i in file.get_det_types():
-            if i not in ("psd", "psd_uu", "psd_dd", "psd_du", "psd_ud"): continue
-            scan_psd = "psd" if i == "psd" else "psd_" + self.comboBox_SFM_detectorImage_polarisation.currentText()
-            detector_images, monitor_list = file.get_det_and_mon(i)
+        for detector in file.get_det_types():
+            if detector not in ("psd", "psd_uu", "psd_dd", "psd_du", "psd_ud"): continue
+            scan_psd = "psd" if detector == "psd" else "psd_" + self.comboBox_SFM_detectorImage_polarisation.currentText()
+            detector_images, monitor_list = file.get_det_and_mon(scan_psd)
 
         # check th
         found_th = False
