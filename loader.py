@@ -7,8 +7,6 @@ class ILoader:
     def is_ok(self): pass
     def is_pol(self): pass
 
-    def get_h5(self): pass
-
     def get_th(self): pass
     def get_tth(self): pass
     def get_s1hg(self): pass
@@ -18,21 +16,11 @@ class ILoader:
     def get_time(self): pass
     def get_roi(self): pass
 
-    def get_mon_all(self): pass
-    def get_mon(self): pass
-    def get_mon_pol(self): pass
-
-    def get_psd_all(self): pass
-    def get_psd(self): pass
-    def get_psd_pol(self): pass
-    def get_detector_types(self): pass
-
-    def get_ponos_all(self): pass
+    def get_det(self): pass
+    def get_det_types(self): pass
 
     def get_det_and_mon(self, which):
-        dets = self.get_psd_all()
-        mons = self.get_mon_all()
-        #pols = self.get_ponos_all()
+        dets = self.get_det()
 
         det = None
         mon = None
@@ -42,14 +30,32 @@ class ILoader:
             det = dets[which]
 
         which_mon = which.replace("psd", "mon")
-        if which_mon in mons:
-            mon = mons[which_mon]
+        if which_mon in dets:
+            mon = dets[which_mon]
 
         #which_pol = which.replace("psd", "data")
-        #if which_pol in pols:
-        #    pol = pols[which_pol]
+        #if which_pol in dets:
+        #    pol = dets[which_pol]
 
         return [ det, mon ] #, pol ]
+
+    def get_psds(self):
+        unpol, uu, dd, du, ud = None, None, None, None, None
+        if "psd" in self.detector_images: unpol = self.detector_images["psd"]
+        if "psd_uu" in self.detector_images: uu = self.detector_images["psd_uu"]
+        if "psd_dd" in self.detector_images: dd = self.detector_images["psd_dd"]
+        if "psd_du" in self.detector_images: du = self.detector_images["psd_du"]
+        if "psd_ud" in self.detector_images: ud = self.detector_images["psd_ud"]
+        return [ unpol, uu, dd, du, ud ]
+
+    def get_mons(self):
+        unpol, uu, dd, du, ud = None, None, None, None, None
+        if "mon" in self.detector_images: unpol = self.detector_images["mon"]
+        if "mon_uu" in self.detector_images: uu = self.detector_images["mon_uu"]
+        if "mon_dd" in self.detector_images: dd = self.detector_images["mon_dd"]
+        if "mon_du" in self.detector_images: du = self.detector_images["mon_du"]
+        if "mon_ud" in self.detector_images: ud = self.detector_images["mon_ud"]
+        return [ unpol, uu, dd, du, ud ]
 
 
 
@@ -65,12 +71,8 @@ class H5Loader(ILoader):
     time_list = []
     roi = []
 
-    monitor_list = {}
-
     detector_types = []
     detector_images = {}
-
-    ponos_images = {}
 
     file_ok = False
     is_polarised = False
@@ -102,27 +104,26 @@ class H5Loader(ILoader):
             elif "'s2hg'" in str(motor): self.s2hg_list = MOTOR_DATA[index]
 
         for index, scaler in enumerate(SCALERS.get('SPEC_counter_mnemonics')):
-            if "'mon0'" in str(scaler): self.monitor_list["mon"] = SCALERS_DATA[index]
+            if "'mon0'" in str(scaler): self.detector_images["mon"] = SCALERS_DATA[index]
             elif "'roi'" in str(scaler): self.intens_list = SCALERS_DATA[index]
             elif "'sec'" in str(scaler): self.time_list = SCALERS_DATA[index]
-            elif "'m1'" in str(scaler): self.monitor_list["mon_uu"] = SCALERS_DATA[index]
-            elif "'m2'" in str(scaler): self.monitor_list["mon_dd"] = SCALERS_DATA[index]
-            elif "'m3'" in str(scaler): self.monitor_list["mon_du"] = SCALERS_DATA[index]
-            elif "'m4'" in str(scaler): self.monitor_list["mon_ud"] = SCALERS_DATA[index]
+            elif "'m1'" in str(scaler): self.detector_images["mon_uu"] = SCALERS_DATA[index]
+            elif "'m2'" in str(scaler): self.detector_images["mon_dd"] = SCALERS_DATA[index]
+            elif "'m3'" in str(scaler): self.detector_images["mon_du"] = SCALERS_DATA[index]
+            elif "'m4'" in str(scaler): self.detector_images["mon_ud"] = SCALERS_DATA[index]
 
         self.roi = np.array(SCALERS.get('roi').get("roi"))
 
         self.is_polarised = "pnr" in SCAN
+        if not self.is_polarised:
+            self.detector_images["psd"] = DETECTORS.get("psd").get('data')
 
         for scan in PONOS.get('data'):
             scan_key = str(scan)
             psd_key = scan_key.replace("data", "psd")
             if psd_key in DETECTORS:
                 self.detector_images[psd_key] = DETECTORS.get(psd_key).get('data')
-            self.ponos_images[scan_key] = PONOS.get('data').get(scan_key)
-
-        if not self.is_polarised:
-            self.detector_images["psd"] = DETECTORS.get("psd").get('data')
+            self.detector_images[scan_key] = PONOS.get('data').get(scan_key)
 
         self.file_ok = True
 
@@ -130,8 +131,6 @@ class H5Loader(ILoader):
     # getters
     def is_ok(self): return self.file_ok
     def is_pol(self): return self.is_polarised
-
-    def get_h5(self): return self.FILE
 
     def get_th(self): return self.th_list
     def get_tth(self): return self.tth_list
@@ -142,34 +141,9 @@ class H5Loader(ILoader):
     def get_time(self): return self.time_list
     def get_roi(self): return self.roi
 
-    def get_mon_all(self): return self.monitor_list
-    def get_mon(self):
-        dat = None
-        if "mon" in self.monitor_list: dat = self.monitor_list["mon"]
-        return dat
-    def get_mon_pol(self):
-        uu, dd, du, ud = None, None, None, None
-        if "mon_uu" in self.monitor_list: uu = self.monitor_list["mon_uu"]
-        if "mon_dd" in self.monitor_list: dd = self.monitor_list["mon_dd"]
-        if "mon_du" in self.monitor_list: du = self.monitor_list["mon_du"]
-        if "mon_ud" in self.monitor_list: ud = self.monitor_list["mon_ud"]
-        return [ uu, dd, du, ud ]
+    def get_det(self): return self.detector_images
+    def get_det_types(self): return self.detector_types
 
-    def get_psd_all(self): return self.detector_images
-    def get_psd(self):
-        dat = None
-        if "psd" in self.detector_images: dat = self.detector_images["psd"]
-        return dat
-    def get_psd_pol(self):
-        uu, dd, du, ud = None, None, None, None
-        if "psd_uu" in self.detector_images: uu = self.detector_images["psd_uu"]
-        if "psd_dd" in self.detector_images: dd = self.detector_images["psd_dd"]
-        if "psd_du" in self.detector_images: du = self.detector_images["psd_du"]
-        if "psd_ud" in self.detector_images: ud = self.detector_images["psd_ud"]
-        return [ uu, dd, du, ud ]
-    def get_detector_types(self): return self.detector_types
-
-    def get_ponos_all(self): return self.ponos_images
 
 
 

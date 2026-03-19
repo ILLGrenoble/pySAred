@@ -214,7 +214,7 @@ class GUI(ui.Ui_MainWindow):
             checkThisFile = False
 
             # check if we have several polarisations
-            for detector in file.get_detector_types():
+            for detector in file.get_det_types():
                 if not detector in ["psd", "psd_uu", "psd_dd", "psd_ud", "psd_du"]:
                     continue
                 detector_images, monitor_list = file.get_det_and_mon(detector)
@@ -496,10 +496,10 @@ class GUI(ui.Ui_MainWindow):
         for index, th in enumerate(file.get_th()):
             self.comboBox_SFM_detectorImage_incidentAngle.addItem(str(round(th, 3)))
 
-        if len(file.get_ponos_all()) == 1:
+        if len([ det for det in list(file.get_det().keys()) if "data" in det ]) == 1:
             for item in (self.comboBox_SFM_detectorImage_polarisation, self.comboBox_SFM_2Dmap_polarisation): item.addItem("uu")
 
-        for polarisation, det_list in file.get_ponos_all().items():
+        for polarisation, det_list in file.get_det().items():
             if not polarisation in ["data_uu", "data_dd", "data_du", "data_ud"]:
                 continue
 
@@ -529,7 +529,7 @@ class GUI(ui.Ui_MainWindow):
         self.s2hg_list = file.get_s2hg()
         time_list = file.get_time()
 
-        for i in file.get_detector_types():
+        for i in file.get_det_types():
             if i not in ("psd", "psd_uu", "psd_dd", "psd_du", "psd_ud"): continue
             scan_psd = "psd" if i == "psd" else "psd_" + self.comboBox_SFM_detectorImage_polarisation.currentText()
             detector_images, monitor_list = file.get_det_and_mon(i)
@@ -691,8 +691,7 @@ class GUI(ui.Ui_MainWindow):
         if not roi_coord_Y == self.roi_oldCoord_Y: self.SFMFileAlreadyAnalyzed = ""
         self.roi_oldCoord_Y = roi_coord_Y
 
-        monitor_list = file.get_mon()
-        monitor_uu_list, monitor_dd_list, monitor_du_list, monitor_ud_list = file.get_mon_pol()
+        monitor_list, monitor_uu_list, monitor_dd_list, monitor_du_list, monitor_ud_list = file.get_mons()
         time_list = file.get_time()
 
         if not self.SFM_FILE == self.SFMFileAlreadyAnalyzed:
@@ -706,13 +705,13 @@ class GUI(ui.Ui_MainWindow):
         # reSUM if we change SFM file or Sample curvature
         if not (self.SFM_FILE == self.SFMFileAlreadyAnalyzed and sampleCurvature_recalc):
             if file.is_pol():
-                self.SFM_psdUU, self.SFM_psdDD, self.SFM_psdDU, self.SFM_psdUD = file.get_psd_pol()
+                self.SFM_psdUU, self.SFM_psdDD, self.SFM_psdDU, self.SFM_psdUD = file.get_psds()[1:]
                 if self.SFM_psdUU != None: self.SFM_psdUU = self.SFM_psdUU[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
                 if self.SFM_psdDD != None: self.SFM_psdDD = self.SFM_psdDD[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
                 if self.SFM_psdDU != None: self.SFM_psdDU = self.SFM_psdDU[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
                 if self.SFM_psdUD != None: self.SFM_psdUD = self.SFM_psdUD[:, int(roi_coord_Y[0]): int(roi_coord_Y[1]), :].sum(axis=1)
             else:
-                self.SFM_psdUU = file.get_psd()[:, int(roi_coord_Y[0]) : int(roi_coord_Y[1]), :].sum(axis=1)
+                self.SFM_psdUU = file.get_psds()[0][:, int(roi_coord_Y[0]) : int(roi_coord_Y[1]), :].sum(axis=1)
 
         if not self.SFM_FILE == self.SFMFileAlreadyAnalyzed: self.SFMFileAlreadyAnalyzed, self.sampleCurvature_last = self.SFM_FILE, "0"
 
@@ -753,9 +752,7 @@ class GUI(ui.Ui_MainWindow):
             self.sampleCurvature_last = [i.text() for i in [self.lineEdit_instrument_sampleCurvature, self.lineEdit_SFM_detectorImage_roiX_left, self.lineEdit_SFM_detectorImage_roiX_right, self.lineEdit_SFM_detectorImage_roiY_bottom, self.lineEdit_SFM_detectorImage_roiY_top]]
 
         for colorIndex, SFM_scanIntens in enumerate([self.SFM_psdUU, self.SFM_psdDU, self.SFM_psdUD, self.SFM_psdDD]):
-
             SFM_export_Qz_onePol, SFM_export_I_onePol, SFM_export_dI_onePol, SFM_export_resolution_onePol = [], [], [], []
-
             plot_I, plot_angle, plot_dI_err_bottom, plot_dI_err_top, plot_overillumination = [], [], [], [], []
 
             if isinstance(SFM_scanIntens, list) and SFM_scanIntens == []: continue
