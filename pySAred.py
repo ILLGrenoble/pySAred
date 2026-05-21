@@ -102,7 +102,7 @@ class GUI(ui.Ui_MainWindow):
     ##--> Main window buttons
     def f_button_importRemoveScans(self):
         if self.sender().objectName() == "pushButton_importScans":
-            files_import = QtWidgets.QFileDialog().getOpenFileNames(None, "FileNames", self.dir_current, ".h5 (*.h5)")
+            files_import = QtWidgets.QFileDialog().getOpenFileNames(None, "FileNames", self.dir_current, ".h5 (*.h5 *.nxs)")
             if files_import[0] == []: return
             # Next "Import scans" will open last dir
             self.dir_current = files_import[0][0][:files_import[0][0].rfind("/")]
@@ -136,7 +136,7 @@ class GUI(ui.Ui_MainWindow):
 
     def f_button_importRemoveDB(self):
         if self.sender().objectName() == "pushButton_importDB":
-            files_import = QtWidgets.QFileDialog().getOpenFileNames(None, "FileNames", self.dir_current, ".h5 (*.h5)")
+            files_import = QtWidgets.QFileDialog().getOpenFileNames(None, "FileNames", self.dir_current, ".h5 (*.h5 *.nxs)")
             if files_import[0] == []: return
             # Next "Import scans" will open last dir
             self.dir_current = files_import[0][0][:files_import[0][0].rfind("/")]

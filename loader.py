@@ -60,8 +60,16 @@ class ILoader:
 
     @staticmethod
     def load(filename):
-        # TODO; choose between loaders here
-        return H5Loader(filename)
+        try:
+            FILE = h5py.File(filename, 'r')
+        except FileNotFoundError:
+            return None
+
+        # choose between loaders
+        if "entry0" in list(FILE.keys()):
+            return NXSLoader(FILE)
+        else:
+            return H5Loader(FILE)
 
 
 
@@ -75,7 +83,7 @@ class H5Loader(ILoader):
 
     intens_list = []
     time_list = []
-    roi = []
+    roi = []   # [ top, bottom, left, right ]
 
     detector_types = []
     detector_images = {}
@@ -84,32 +92,29 @@ class H5Loader(ILoader):
     is_polarised = False
 
 
-    def __init__(self, filename):
+    def __init__(self, FILE):
         self.file_ok = False
-        try:
-            self.FILE = h5py.File(filename, 'r')
-        except FileNotFoundError:
-            return
+        self.FILE = FILE
 
         SCAN         = self.FILE[list(self.FILE.keys())[0]]
         INSTRUMENT   = SCAN.get("instrument")
         PONOS        = SCAN.get("ponos")
-        MOTORS       = INSTRUMENT.get('motors')
-        MOTOR_DATA   = np.array(MOTORS.get('data')).T
-        SCALERS      = INSTRUMENT.get('scalers')
-        SCALERS_DATA = np.array(SCALERS.get('data')).T
+        MOTORS       = INSTRUMENT.get("motors")
+        MOTOR_DATA   = np.array(MOTORS.get("data")).T
+        SCALERS      = INSTRUMENT.get("scalers")
+        SCALERS_DATA = np.array(SCALERS.get("data")).T
         DETECTORS    = INSTRUMENT.get("detectors")
 
         for det in DETECTORS:
             self.detector_types.append(str(det))
 
-        for index, motor in enumerate(MOTORS.get('SPEC_motor_mnemonics')):
+        for index, motor in enumerate(MOTORS.get("SPEC_motor_mnemonics")):
             if "'th'" in str(motor): self.th_list = MOTOR_DATA[index]
             elif "'tth'" in str(motor): self.tth_list = MOTOR_DATA[index]
             elif "'s1hg'" in str(motor): self.s1hg_list = MOTOR_DATA[index]
             elif "'s2hg'" in str(motor): self.s2hg_list = MOTOR_DATA[index]
 
-        for index, scaler in enumerate(SCALERS.get('SPEC_counter_mnemonics')):
+        for index, scaler in enumerate(SCALERS.get("SPEC_counter_mnemonics")):
             if "'mon0'" in str(scaler): self.detector_images["mon"] = SCALERS_DATA[index]
             elif "'roi'" in str(scaler): self.intens_list = SCALERS_DATA[index]
             elif "'sec'" in str(scaler): self.time_list = SCALERS_DATA[index]
@@ -118,18 +123,131 @@ class H5Loader(ILoader):
             elif "'m3'" in str(scaler): self.detector_images["mon_du"] = SCALERS_DATA[index]
             elif "'m4'" in str(scaler): self.detector_images["mon_ud"] = SCALERS_DATA[index]
 
-        self.roi = np.array(SCALERS.get('roi').get("roi"))
+        self.roi = np.array(SCALERS.get("roi").get("roi"))
 
         self.is_polarised = "pnr" in SCAN
         if not self.is_polarised:
-            self.detector_images["psd"] = DETECTORS.get("psd").get('data')
+            self.detector_images["psd"] = DETECTORS.get("psd").get("data")
 
-        for scan in PONOS.get('data'):
+        for scan in PONOS.get("data"):
             scan_key = str(scan)
             psd_key = scan_key.replace("data", "psd")
             if psd_key in DETECTORS:
-                self.detector_images[psd_key] = DETECTORS.get(psd_key).get('data')
-            self.detector_images[scan_key] = PONOS.get('data').get(scan_key)
+                self.detector_images[psd_key] = DETECTORS.get(psd_key).get("data")
+            self.detector_images[scan_key] = PONOS.get("data").get(scan_key)
+
+        if len(self.roi) == 0 and len(self.detector_types) > 0:
+            # select everything if no roi is given
+            self.roi = np.array([ 0., float(self.detector_images[self.detector_types[0]].shape[1]),
+                0., float(self.detector_images[self.detector_types[0]].shape[2]) ])
+
+        self.file_ok = True
+
+
+    # getters
+    def is_ok(self): return self.file_ok
+    def is_pol(self): return self.is_polarised
+
+    def get_th(self): return self.th_list
+    def get_tth(self): return self.tth_list
+    def get_s1hg(self): return self.s1hg_list
+    def get_s2hg(self): return self.s2hg_list
+
+    def get_intens(self): return self.intens_list
+    def get_time(self): return self.time_list
+    def get_roi(self): return self.roi
+
+    def get_det(self): return self.detector_images
+    def get_det_types(self): return self.detector_types
+
+
+
+class NXSLoader(ILoader):
+    FILE = None
+
+    th_list = []
+    tth_list = []
+    s1hg_list = []
+    s2hg_list = []
+
+    intens_list = []
+    time_list = []
+    roi = []  # [ top, bottom, left, right ]
+
+    detector_types = []
+    detector_images = {}
+
+    file_ok = False
+    is_polarised = False
+
+
+    def __init__(self, FILE):
+        self.file_ok = False
+        self.FILE = FILE
+
+        SCAN       = self.FILE[list(self.FILE.keys())[0]]
+        DATA_SCAN  = SCAN["data_scan"]
+        VARS       = DATA_SCAN["scanned_variables"]
+        INSTRUMENT = None
+
+        # find instrument
+        for item in SCAN.values():
+            try:
+                if item.attrs.get("NX_class").decode() == "NXinstrument":
+                    INSTRUMENT = item
+                    break
+            except AttributeError:
+                pass
+
+        # no instrument found
+        if INSTRUMENT == None:
+            return
+
+        # get instrument angles
+        try:
+            self.th_list = np.array(INSTRUMENT["th"]["value"])
+        except KeyError:
+            pass
+        try:
+            self.tth_list = np.array(INSTRUMENT["tth"]["value"])
+        except KeyError:
+            pass
+        try:
+            self.s1hg_list = np.array(INSTRUMENT["s1hg"]["value"])
+        except KeyError:
+            pass
+        try:
+            self.s2hg_list = np.array(INSTRUMENT["s2hg"]["value"])
+        except KeyError:
+            pass
+
+        # get the scanned variables
+        try:
+            vars = VARS["variables_names/label"][:]
+        except KeyError:
+            axes = VARS["variables_names/axis"][:]
+            names = VARS["variables_names/name"][:]
+            props = VARS["variables_names/property"][:]
+            vars = [ names[i] if axes[i] != 0 else props[i] for i in range(axes.size) ]
+        vars = [ str.decode() for str in vars ]
+        try:
+            # get scanned vars
+            scanned_cols = VARS["variables_names/scanned"][:]
+            scanned_vars = [ vars[idx] for idx in range(scanned_cols.size) if scanned_cols[idx] != 0 ]
+        except KeyError:
+            # use all vars
+            scanned_vars = vars
+        #print(scanned_vars)
+
+        # detector images
+        self.is_polarised = False
+        self.detector_types = [ "psd" ]
+        self.detector_images["psd"] = DATA_SCAN.get("detector_data").get("data")
+
+        if len(self.roi) == 0 and len(self.detector_types) > 0:
+            # select everything if no roi is given
+            self.roi = np.array([ 0., float(self.detector_images[self.detector_types[0]].shape[1]),
+                0., float(self.detector_images[self.detector_types[0]].shape[2]) ])
 
         self.file_ok = True
 
@@ -154,6 +272,5 @@ class H5Loader(ILoader):
 
 
 # test
-#file = ILoader.load("00593.h5")
-#file = ILoader.load("test_file.h5")
-#print(file.get_th())
+#ILoader.load("00593.h5")
+#ILoader.load("001034.nxs")
