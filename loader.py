@@ -12,7 +12,6 @@ class ILoader:
     def get_s1hg(self): pass
     def get_s2hg(self): pass
 
-    def get_intens(self): pass
     def get_time(self): pass
     def get_roi(self): pass
 
@@ -81,7 +80,6 @@ class H5Loader(ILoader):
     s1hg_list = []
     s2hg_list = []
 
-    intens_list = []
     time_list = []
     roi = []   # [ top, bottom, left, right ]
 
@@ -106,7 +104,8 @@ class H5Loader(ILoader):
         DETECTORS    = INSTRUMENT.get("detectors")
 
         for det in DETECTORS:
-            self.detector_types.append(str(det))
+            if not det in self.detector_types:
+                self.detector_types.append(str(det))
 
         for index, motor in enumerate(MOTORS.get("SPEC_motor_mnemonics")):
             if "'th'" in str(motor): self.th_list = MOTOR_DATA[index]
@@ -116,7 +115,7 @@ class H5Loader(ILoader):
 
         for index, scaler in enumerate(SCALERS.get("SPEC_counter_mnemonics")):
             if "'mon0'" in str(scaler): self.detector_images["mon"] = SCALERS_DATA[index]
-            elif "'roi'" in str(scaler): self.intens_list = SCALERS_DATA[index]
+            #elif "'roi'" in str(scaler): self.intens_list = SCALERS_DATA[index]
             elif "'sec'" in str(scaler): self.time_list = SCALERS_DATA[index]
             elif "'m1'" in str(scaler): self.detector_images["mon_uu"] = SCALERS_DATA[index]
             elif "'m2'" in str(scaler): self.detector_images["mon_dd"] = SCALERS_DATA[index]
@@ -153,7 +152,6 @@ class H5Loader(ILoader):
     def get_s1hg(self): return self.s1hg_list
     def get_s2hg(self): return self.s2hg_list
 
-    def get_intens(self): return self.intens_list
     def get_time(self): return self.time_list
     def get_roi(self): return self.roi
 
@@ -170,7 +168,6 @@ class NXSLoader(ILoader):
     s1hg_list = []
     s2hg_list = []
 
-    intens_list = []
     time_list = []
     roi = []  # [ top, bottom, left, right ]
 
@@ -221,6 +218,19 @@ class NXSLoader(ILoader):
         except KeyError:
             pass
 
+        # detector images
+        self.is_polarised = False
+        self.detector_types = [ "psd" ]
+        self.detector_images["psd"] = self.detector_images["data"] = \
+            DATA_SCAN.get("detector_data").get("data")
+        # TODO
+        self.detector_images["mon"] = [ 1. ] * self.detector_images["data"].shape[0]
+
+        if len(self.roi) == 0 and len(self.detector_types) > 0:
+            # select everything if no roi is given
+            self.roi = np.array([ 0., float(self.detector_images[self.detector_types[0]].shape[1] - 1.),
+                0., float(self.detector_images[self.detector_types[0]].shape[2]) - 1. ])
+
         # get the scanned variables
         try:
             vars = VARS["variables_names/label"][:]
@@ -237,17 +247,22 @@ class NXSLoader(ILoader):
         except KeyError:
             # use all vars
             scanned_vars = vars
-        #print(scanned_vars)
 
-        # detector images
-        self.is_polarised = False
-        self.detector_types = [ "psd" ]
-        self.detector_images["psd"] = DATA_SCAN.get("detector_data").get("data")
-
-        if len(self.roi) == 0 and len(self.detector_types) > 0:
-            # select everything if no roi is given
-            self.roi = np.array([ 0., float(self.detector_images[self.detector_types[0]].shape[1]),
-                0., float(self.detector_images[self.detector_types[0]].shape[2]) ])
+        # get the scanned variable values
+        self.time_list = [ 0. ] * self.detector_images["data"].shape[0]
+        self.th_list = self.tth_list = [ 0. ] * self.detector_images["data"].shape[0]
+        self.s1hg_list = self.s2hg_list = [ 1. ] * self.detector_images["data"].shape[0]
+        for idx in range(scanned_cols.size):
+            if int(scanned_cols[idx]) == 0:
+                continue
+            if scanned_vars[idx] == "th":
+                self.th_list = VARS["data"][idx, :]
+            elif scanned_vars[idx] == "tth":
+                self.tth_list = VARS["data"][idx, :]
+            elif scanned_vars[idx] == "s1hg":
+                self.s1hg_list = VARS["data"][idx, :]
+            elif scanned_vars[idx] == "s2hg":
+                self.s2hg_list = VARS["data"][idx, :]
 
         self.file_ok = True
 
@@ -261,7 +276,6 @@ class NXSLoader(ILoader):
     def get_s1hg(self): return self.s1hg_list
     def get_s2hg(self): return self.s2hg_list
 
-    def get_intens(self): return self.intens_list
     def get_time(self): return self.time_list
     def get_roi(self): return self.roi
 

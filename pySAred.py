@@ -106,7 +106,6 @@ class GUI(ui.Ui_MainWindow):
             if files_import[0] == []: return
             # Next "Import scans" will open last dir
             self.dir_current = files_import[0][0][:files_import[0][0].rfind("/")]
-
             for FILE in files_import[0]:
                 self.tableWidget_scans.insertRow(self.tableWidget_scans.rowCount())
                 self.tableWidget_scans.setRowHeight(self.tableWidget_scans.rowCount()-1, 10)
