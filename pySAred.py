@@ -93,9 +93,14 @@ class GUI(ui.Ui_MainWindow):
         msgBox = QtWidgets.QMessageBox()
         msgBox.setWindowIcon(QtGui.QIcon(self.iconpath))
         msgBox.setText("pySAred " + self.action_version.text() + "\n\n"
-                       "Alexey.Klechikov@gmail.com\n\n"
-                       "Check new version at https://github.com/Alexey-Klechikov/pySAred/releases")
-        msgBox.exec_()
+                       "Alexey.Klechikov@gmail.com (original author)\n"
+                       "tweber@ill.fr (nexus loader, refactorings)\n\n"
+                       "Check new version at https://github.com/ILLGrenoble/pySAred\n"
+                       "Original version at https://github.com/Alexey-Klechikov/pySAred/releases")
+        if ui.qt_ver < 6:
+            msgBox.exec_()
+        else:
+            msgBox.exec()
     ##<--
 
 

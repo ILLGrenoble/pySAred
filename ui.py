@@ -529,7 +529,7 @@ class Ui_MainWindow(QMainWindow):
             self.action_version = QtWidgets.QAction(MainWindow)
         else:
             self.action_version = QtGui.QAction(MainWindow)
-        self.__create_element(self.action_version, [999, 999, 999, 999], "action_version", text="V1.5.1")
+        self.__create_element(self.action_version, [999, 999, 999, 999], "action_version", text="V1.6")
         self.menu_help.addAction(self.action_version)
         self.menubar.addAction(self.menu_help.menuAction())
 
