@@ -422,6 +422,7 @@ class GUI(ui.Ui_MainWindow):
             th_list = file.get_th()
             s1hg_list = file.get_s1hg()
             s2hg_list = file.get_s2hg()
+            intens_list = file.get_intens()
 
             if self.checkBox_reductions_divideByMonitorOrTime.isChecked(): monitor = monitor_list if self.comboBox_reductions_divideByMonitorOrTime.currentText() == "monitor" else time_list
             else: monitor = np.ones_like(intens_list)
@@ -500,11 +501,11 @@ class GUI(ui.Ui_MainWindow):
         for index, th in enumerate(file.get_th()):
             self.comboBox_SFM_detectorImage_incidentAngle.addItem(str(round(th, 3)))
 
-        if len([ det for det in list(file.get_det().keys()) if "data" in det ]) == 1:
+        if len([ det for det in list(file.get_det().keys()) if "data" in det or "psd" in det ]) == 1:
             for item in (self.comboBox_SFM_detectorImage_polarisation, self.comboBox_SFM_2Dmap_polarisation): item.addItem("uu")
 
         for polarisation, det_list in file.get_det().items():
-            if not polarisation in ["data_uu", "data_dd", "data_du", "data_ud"]:
+            if not (polarisation in ["data_uu", "data_dd", "data_du", "data_ud"] or (polarisation in ["psd_uu", "psd_dd", "psd_du", "psd_ud"])):
                 continue
 
             if np.any(np.array(det_list)):
