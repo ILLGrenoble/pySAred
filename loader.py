@@ -58,8 +58,15 @@ class ILoader:
         return [ unpol, uu, dd, du, ud ]
 
 
+    __cached_files = { }
+
+
     @staticmethod
     def load(filename):
+        if filename in ILoader.__cached_files:
+            print("Loading %s from cache." % filename)
+            return ILoader.__cached_files[filename]
+
         try:
             FILE = h5py.File(filename, 'r')
         except FileNotFoundError:
@@ -67,10 +74,15 @@ class ILoader:
 
         # choose between loaders
         if "entry0" in list(FILE.keys()):
-            return NXSLoader(FILE)
+            print("Loading nexus file %s." % filename)
+            file = NXSLoader(FILE)
         else:
-            return H5Loader(FILE)
+            print("Loading hdf5 file %s." % filename)
+            file = H5Loader(FILE)
 
+        ILoader.__cached_files[filename] = file
+
+        return file
 
 
 class H5Loader(ILoader):
@@ -228,10 +240,19 @@ class NXSLoader(ILoader):
         data_full_len = all_psd.shape[0]
         num_pol = int(data_full_len / data_len)
         self.is_polarised = (num_pol > 1)
+        #print("Number of polarisation channels: %d." % num_pol)
+
         if self.is_polarised:
             self.detector_types = [ "psd_uu", "psd_dd" ]
             self.detector_images["psd_uu"] = all_psd[::num_pol]
             self.detector_images["psd_dd"] = all_psd[1::num_pol]
+            if num_pol > 2:
+                self.detector_types.append("psd_ud")
+                self.detector_images["psd_ud"] = all_psd[2::num_pol]
+            if num_pol > 3:
+                self.detector_types.append("psd_du")
+                self.detector_images["psd_du"] = all_psd[3::num_pol]
+
             # TODO
             self.detector_images["mon_uu"] = [ 1. ] * data_len
             self.detector_images["mon_dd"] = [ 1. ] * data_len

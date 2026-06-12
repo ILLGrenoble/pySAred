@@ -501,18 +501,24 @@ class GUI(ui.Ui_MainWindow):
         for index, th in enumerate(file.get_th()):
             self.comboBox_SFM_detectorImage_incidentAngle.addItem(str(round(th, 3)))
 
+        comboitems = []
+
         if len([ det for det in list(file.get_det().keys()) if "data" in det or "psd" in det ]) == 1:
-            for item in (self.comboBox_SFM_detectorImage_polarisation, self.comboBox_SFM_2Dmap_polarisation): item.addItem("uu")
+            if "uu" not in comboitems:
+                comboitems.append("uu")
 
         for polarisation, det_list in file.get_det().items():
             if not (polarisation in ["data_uu", "data_dd", "data_du", "data_ud"] or (polarisation in ["psd_uu", "psd_dd", "psd_du", "psd_ud"])):
                 continue
 
             if np.any(np.array(det_list)):
-                for item in (self.comboBox_SFM_detectorImage_polarisation, self.comboBox_SFM_2Dmap_polarisation): item.addItem(polarisation[-2:])
+                polname = polarisation[-2:]
+                if polname not in comboitems:
+                    comboitems.append(polname)
 
-        self.comboBox_SFM_detectorImage_polarisation.setCurrentIndex(0)
-        self.comboBox_SFM_2Dmap_polarisation.setCurrentIndex(0)
+        for item in (self.comboBox_SFM_detectorImage_polarisation, self.comboBox_SFM_2Dmap_polarisation):
+            item.addItems(comboitems)
+            item.setCurrentIndex(0)
 
 
     def f_SFM_detectorImage_draw(self):
